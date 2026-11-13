@@ -25,24 +25,36 @@ jobs:
     needs: [lint, tests, e2e, chart]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Everything is written with the App's token below, not GITHUB_TOKEN.
     permissions:
-      contents: write
-      pull-requests: write
-      # Release Please labels its PRs, and labels use the issues API.
-      issues: write
+      contents: read
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       version: ${{ steps.release.outputs.version }}
       sha: ${{ steps.release.outputs.sha }}
     steps:
+      # A PR opened with GITHUB_TOKEN doesn't trigger workflows, so its
+      # required checks would never report. The release PR is opened as
+      # this repo's GitHub App instead, and CI runs on it like any other PR.
+      - id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          # Release Please labels its PRs, and labels use the issues API.
+          permission-issues: write
+
       - id: release
         uses: googleapis/release-please-action@v5
         with:
+          token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-  # Called directly rather than triggered by the new tag: a tag created with
-  # GITHUB_TOKEN doesn't start other workflows.
+  # Called here rather than triggered by the tag, so it builds exactly the
+  # release commit and only ever runs after the checks above.
   publish:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
