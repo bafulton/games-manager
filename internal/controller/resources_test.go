@@ -126,6 +126,49 @@ func TestStatefulSet(t *testing.T) {
 	}
 }
 
+func TestScheduling(t *testing.T) {
+	game, s := valheim(), server("bob", "valheim")
+	game.Spec.NodeSelector = map[string]string{"example.com/zone": "home"}
+	game.Spec.Tolerations = []corev1.Toleration{{Key: "example.com/busy", Effect: corev1.TaintEffectPreferNoSchedule}}
+	game.Spec.Affinity = &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+		PreferredDuringSchedulingIgnoredDuringExecution: []corev1.PreferredSchedulingTerm{{
+			Weight: 50,
+			Preference: corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{{
+				Key: "example.com/zone", Operator: corev1.NodeSelectorOpIn, Values: []string{"cloud"},
+			}}},
+		}},
+	}}
+
+	sts := &appsv1.StatefulSet{}
+	if err := mutateStatefulSet(sts, game, s); err != nil {
+		t.Fatal(err)
+	}
+	pod := sts.Spec.Template.Spec
+	want := map[string]string{"example.com/zone": "home", corev1.LabelArchStable: "amd64"}
+	if len(pod.NodeSelector) != len(want) {
+		t.Errorf("node selector = %v, want %v", pod.NodeSelector, want)
+	}
+	for k, v := range want {
+		if pod.NodeSelector[k] != v {
+			t.Errorf("node selector[%q] = %q, want %q", k, pod.NodeSelector[k], v)
+		}
+	}
+	if game.Spec.NodeSelector[corev1.LabelArchStable] != "" {
+		t.Error("adding arch must not modify the Game's own nodeSelector")
+	}
+	if pod.Affinity != game.Spec.Affinity || len(pod.Tolerations) != 1 {
+		t.Errorf("affinity and tolerations should pass through: %+v, %+v", pod.Affinity, pod.Tolerations)
+	}
+
+	game.Spec.NodeSelector, game.Spec.Arch = nil, ""
+	if err := mutateStatefulSet(sts, game, s); err != nil {
+		t.Fatal(err)
+	}
+	if sts.Spec.Template.Spec.NodeSelector != nil {
+		t.Errorf("with no arch or nodeSelector, node selector = %v, want none", sts.Spec.Template.Spec.NodeSelector)
+	}
+}
+
 func TestRestartRollsThePod(t *testing.T) {
 	game, s := valheim(), server("bob", "valheim")
 	sts := &appsv1.StatefulSet{}

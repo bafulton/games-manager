@@ -173,10 +173,9 @@ func mutateStatefulSet(sts *appsv1.StatefulSet, game *gamesv1alpha1.Game, server
 	if pod.SecurityContext == nil {
 		pod.SecurityContext = defaultPodSecurityContext()
 	}
-	pod.NodeSelector = nil
-	if game.Spec.Arch != "" {
-		pod.NodeSelector = map[string]string{corev1.LabelArchStable: game.Spec.Arch}
-	}
+	pod.NodeSelector = nodeSelector(game)
+	pod.Affinity = game.Spec.Affinity
+	pod.Tolerations = game.Spec.Tolerations
 	pod.Volumes = []corev1.Volume{{
 		Name: worldVolumeName,
 		VolumeSource: corev1.VolumeSource{
@@ -227,6 +226,22 @@ func mutateStatefulSet(sts *appsv1.StatefulSet, game *gamesv1alpha1.Game, server
 	}
 	pod.Containers = []corev1.Container{container}
 	return nil
+}
+
+// nodeSelector is the Game's nodeSelector with its arch added, or nil when
+// there is neither.
+func nodeSelector(game *gamesv1alpha1.Game) map[string]string {
+	if len(game.Spec.NodeSelector) == 0 && game.Spec.Arch == "" {
+		return nil
+	}
+	selector := make(map[string]string, len(game.Spec.NodeSelector)+1)
+	for k, v := range game.Spec.NodeSelector {
+		selector[k] = v
+	}
+	if game.Spec.Arch != "" {
+		selector[corev1.LabelArchStable] = game.Spec.Arch
+	}
+	return selector
 }
 
 func protocol(p gamesv1alpha1.GamePort) corev1.Protocol {
