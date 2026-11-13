@@ -44,7 +44,9 @@ type GamePort struct {
 // HostnameConnection configures ConnectionHostname.
 type HostnameConnection struct {
 	// Domain each server's hostname is created under: server "alice" of a
-	// Game with domain "mc.example.com" is "alice.mc.example.com".
+	// Game with domain "mc.example.com" is "alice.mc.example.com". The
+	// namespace isn't part of it, so a second "alice" in another namespace
+	// reports HostnameConflict until the first is deleted.
 	// +kubebuilder:validation:MinLength=1
 	Domain string `json:"domain"`
 }
