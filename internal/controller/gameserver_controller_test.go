@@ -90,8 +90,11 @@ var _ = Describe("GameServer Controller", func() {
 	It("stops a server by scaling it to zero", func() {
 		s := server("alice", "minecraft")
 		s.Namespace = testNamespace
-		s.Spec.Running = ptr.To(false)
 		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		reconcileUntilSettled("alice")
+		get(s, "alice")
+		s.Spec.Running = ptr.To(false)
+		Expect(k8sClient.Update(ctx, s)).To(Succeed())
 		reconcileUntilSettled("alice")
 
 		sts := &appsv1.StatefulSet{}
@@ -99,6 +102,38 @@ var _ = Describe("GameServer Controller", func() {
 		Expect(*sts.Spec.Replicas).To(Equal(int32(0)))
 		get(s, "alice")
 		Expect(s.Status.Phase).To(Equal(gamesv1alpha1.PhaseStopped))
+	})
+
+	DescribeTable("honors stop requests when the catalog is broken", func(removeGame bool) {
+		s := server("alice", "minecraft")
+		s.Namespace = testNamespace
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		reconcileUntilSettled("alice")
+		if removeGame {
+			Expect(k8sClient.Delete(ctx, minecraft())).To(Succeed())
+		}
+		get(s, "alice")
+		s.Spec.Size = "removed-size"
+		s.Spec.Running = ptr.To(false)
+		Expect(k8sClient.Update(ctx, s)).To(Succeed())
+		reconcileUntilSettled("alice")
+		sts := &appsv1.StatefulSet{}
+		get(sts, "alice")
+		Expect(*sts.Spec.Replicas).To(BeZero())
+		get(s, "alice")
+		Expect(s.Status.Phase).To(Equal(gamesv1alpha1.PhaseStopped))
+	}, Entry("missing Game", true), Entry("removed size", false))
+
+	It("does not provision resources for a server created stopped", func() {
+		s := server("dormant", "missing")
+		s.Namespace = testNamespace
+		s.Spec.Running = ptr.To(false)
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		reconcileUntilSettled("dormant")
+		get(s, "dormant")
+		Expect(s.Status.Phase).To(Equal(gamesv1alpha1.PhaseStopped))
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: "dormant-world", Namespace: testNamespace}, &corev1.PersistentVolumeClaim{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	})
 
 	It("gives each port pool server its own slot, and keeps it", func() {
