@@ -114,7 +114,7 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, r.updateStatus(ctx, game, server, sts)
+	return ctrl.Result{}, r.updateStatus(ctx, game, server, sts, svc)
 }
 
 // stop scales the server's StatefulSet to zero, without rebuilding anything:
@@ -137,7 +137,7 @@ func (r *GameServerReconciler) stop(ctx context.Context, server *gamesv1alpha1.G
 			}
 		}
 	}
-	return r.updateStatus(ctx, nil, server, sts)
+	return r.updateStatus(ctx, nil, server, sts, nil)
 }
 
 // claimAddress assigns a PortPool server its slot, and checks that no other
@@ -302,7 +302,10 @@ func (r *GameServerReconciler) finalize(ctx context.Context, server *gamesv1alph
 	return r.Update(ctx, server)
 }
 
-func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer, sts *appsv1.StatefulSet) error {
+// updateStatus reports the server's phase, and its address when game and svc
+// are known.
+func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer,
+	sts *appsv1.StatefulSet, svc *corev1.Service) error {
 	ready := sts.Status.ReadyReplicas >= 1
 	phase := gamesv1alpha1.PhaseStarting
 	reason, message := "Starting", "waiting for the server's pod to be ready"
@@ -321,6 +324,9 @@ func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gamesv1al
 	server.Status.Phase = phase
 	if game != nil {
 		server.Status.Address = address(game, server)
+		if game.Spec.Connection.Type == gamesv1alpha1.ConnectionDirect {
+			server.Status.Address = serviceAddress(game, server, svc)
+		}
 	}
 	server.Status.ObservedGeneration = server.Generation
 	meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{

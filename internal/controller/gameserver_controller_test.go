@@ -154,6 +154,21 @@ var _ = Describe("GameServer Controller", func() {
 		Expect(versionOf("alice")).To(Equal("itzg/minecraft-server:java21 1.21.4"), "the running server is left alone")
 	})
 
+	It("reports a Direct server's address from its Service", func() {
+		game := minecraft()
+		game.Name = "minecraft-direct"
+		game.Spec.Connection = gamesv1alpha1.Connection{Type: gamesv1alpha1.ConnectionDirect}
+		Expect(k8sClient.Create(ctx, game)).To(Succeed())
+		DeferCleanup(func() { Expect(k8sClient.Delete(ctx, game)).To(Succeed()) })
+
+		s := server("dave", "minecraft-direct")
+		s.Namespace = testNamespace
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		reconcileUntilSettled("dave")
+		get(s, "dave")
+		Expect(s.Status.Address).To(Equal("dave." + testNamespace + ".svc:25565"))
+	})
+
 	It("stops a server by scaling it to zero", func() {
 		s := server("alice", "minecraft")
 		s.Namespace = testNamespace

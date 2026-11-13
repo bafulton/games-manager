@@ -7,7 +7,7 @@ import (
 )
 
 // ConnectionType is how players reach a server of a Game.
-// +kubebuilder:validation:Enum=Hostname;PortPool
+// +kubebuilder:validation:Enum=Hostname;PortPool;Direct
 type ConnectionType string
 
 const (
@@ -23,6 +23,11 @@ const (
 	// server's Service; $(SLOT) in the Game's service annotations can name
 	// it for that.
 	ConnectionPortPool ConnectionType = "PortPool"
+
+	// ConnectionDirect connects players straight to each server's own
+	// Service: its load balancer address, a node port, or, inside the
+	// cluster, its cluster DNS name. No proxy or forwarder is involved.
+	ConnectionDirect ConnectionType = "Direct"
 )
 
 // GamePort is a port the game server listens on.
@@ -82,6 +87,18 @@ type PortPoolConnection struct {
 	Stride int32 `json:"stride,omitempty"`
 }
 
+// DirectConnection configures ConnectionDirect.
+type DirectConnection struct {
+	// Host players connect to, in place of the one the Service reports.
+	// Required with a NodePort Service, as a node's address. With a
+	// LoadBalancer Service it can be a DNS name for each server, using
+	// $(SERVER), $(NAMESPACE) and $(GAME), eg "$(SERVER).games.example.com".
+	// Defaults to the load balancer's IP or hostname, or the Service's
+	// cluster DNS name for a ClusterIP Service.
+	// +optional
+	Host string `json:"host,omitempty"`
+}
+
 // Connection is how players reach a server of a Game.
 // +kubebuilder:validation:XValidation:rule="self.type != 'Hostname' || has(self.hostname)",message="type Hostname needs hostname"
 // +kubebuilder:validation:XValidation:rule="self.type != 'PortPool' || has(self.portPool)",message="type PortPool needs portPool"
@@ -93,6 +110,9 @@ type Connection struct {
 
 	// +optional
 	PortPool *PortPoolConnection `json:"portPool,omitempty"`
+
+	// +optional
+	Direct *DirectConnection `json:"direct,omitempty"`
 }
 
 // GameService shapes each server's Service, so it fits whatever exposes
@@ -197,6 +217,7 @@ type GameStorage struct {
 // GameSpec defines how to run servers of one game.
 // +kubebuilder:validation:XValidation:rule="self.sizes.exists(s, s.name == self.defaultSize)",message="defaultSize must name one of sizes"
 // +kubebuilder:validation:XValidation:rule="has(self.versions) && size(self.versions) > 0 ? has(self.defaultVersion) && self.versions.exists(v, v.name == self.defaultVersion && !(has(v.deprecated) && v.deprecated)) : !has(self.defaultVersion) || size(self.defaultVersion) == 0",message="defaultVersion must name one of versions that isn't deprecated, and is only set with versions"
+// +kubebuilder:validation:XValidation:rule="self.connection.type != 'Direct' || !has(self.service) || !has(self.service.type) || self.service.type != 'NodePort' || (has(self.connection.direct) && has(self.connection.direct.host))",message="a Direct connection over a NodePort Service needs connection.direct.host"
 // +kubebuilder:validation:XValidation:rule="!has(self.arch) || size(self.arch) == 0 || !has(self.nodeSelector) || !('kubernetes.io/arch' in self.nodeSelector)",message="set the architecture with arch, not nodeSelector"
 type GameSpec struct {
 	// Image of the game server, pinned to a tag or digest.

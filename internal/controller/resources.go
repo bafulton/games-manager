@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"maps"
+	"net"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,7 +88,8 @@ func versionFor(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) (*ga
 }
 
 // address is where players connect, or "" while a PortPool server has no
-// slot yet.
+// slot yet. It's "" for a Direct connection, whose address comes from the
+// Service: see serviceAddress.
 func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string {
 	conn := game.Spec.Connection
 	switch conn.Type {
@@ -105,6 +107,43 @@ func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string 
 		return fmt.Sprintf("%s:%d", pool.PublicHost, pool.BasePort+*server.Spec.Slot*stride)
 	}
 	return ""
+}
+
+// serviceAddress is where players connect to a Direct server: the host,
+// and the port of the Game's first port, or "" until a load balancer has
+// an address.
+func serviceAddress(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer, svc *corev1.Service) string {
+	if len(svc.Spec.Ports) == 0 {
+		return ""
+	}
+	port := svc.Spec.Ports[0].Port
+	if svc.Spec.Type == corev1.ServiceTypeNodePort {
+		port = svc.Spec.Ports[0].NodePort
+	}
+
+	host := ""
+	if direct := game.Spec.Connection.Direct; direct != nil && direct.Host != "" {
+		host = expand(direct.Host, game, server)
+	} else {
+		switch svc.Spec.Type {
+		case corev1.ServiceTypeLoadBalancer:
+			for _, ingress := range svc.Status.LoadBalancer.Ingress {
+				host = ingress.IP
+				if host == "" {
+					host = ingress.Hostname
+				}
+				if host != "" {
+					break
+				}
+			}
+		case corev1.ServiceTypeClusterIP:
+			host = fmt.Sprintf("%s.%s.svc", svc.Name, svc.Namespace)
+		}
+	}
+	if host == "" || port == 0 {
+		return ""
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }
 
 func desiredPVC(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) *corev1.PersistentVolumeClaim {
