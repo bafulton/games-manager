@@ -206,4 +206,54 @@ var _ = Describe("GameServer Controller", func() {
 		// or, at most, marked for deletion.
 		Expect(apierrors.IsNotFound(err) || !pvc.DeletionTimestamp.IsZero()).To(BeTrue())
 	})
+
+	It("rejects duplicate and out-of-range restored slots without provisioning them", func() {
+		for _, name := range []string{"original", "duplicate", "outside"} {
+			s := server(name, "valheim")
+			s.Namespace = testNamespace
+			s.Spec.Slot = ptr.To[int32](0)
+			if name == "outside" {
+				s.Spec.Slot = ptr.To[int32](4)
+			}
+			Expect(k8sClient.Create(ctx, s)).To(Succeed())
+			if name == "original" {
+				reconcileUntilSettled(name)
+				continue
+			}
+			result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(s)})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+			get(s, name)
+			Expect(s.Status.Conditions[0].Reason).To(Equal("SlotConflict"))
+			err = k8sClient.Get(ctx, client.ObjectKeyFromObject(s), &corev1.Service{})
+			Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}
+		By("leaving the original holder of the slot running")
+		reconcileUntilSettled("original")
+		original := &gamesv1alpha1.GameServer{}
+		get(original, "original")
+		Expect(original.Status.Phase).NotTo(Equal(gamesv1alpha1.PhaseError))
+	})
+
+	It("retries an exhausted pool and allocates a subsequently released slot", func() {
+		for i, name := range []string{"r0", "r1", "r2", "r3", "waiting"} {
+			s := server(name, "valheim")
+			s.Namespace = testNamespace
+			if i < 4 {
+				s.Spec.Slot = ptr.To(int32(i))
+			}
+			Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		}
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: "waiting", Namespace: testNamespace}}
+		result, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+		released := &gamesv1alpha1.GameServer{}
+		get(released, "r0")
+		Expect(k8sClient.Delete(ctx, released)).To(Succeed())
+		reconcileUntilSettled("waiting")
+		waiting := &gamesv1alpha1.GameServer{}
+		get(waiting, "waiting")
+		Expect(*waiting.Spec.Slot).To(BeZero())
+	})
 })
