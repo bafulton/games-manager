@@ -1,0 +1,9 @@
+apiVersion: games.homelab.io/v1alpha1
+kind: Game
+metadata:
+  labels:
+    app.kubernetes.io/name: games-manager
+    app.kubernetes.io/managed-by: kustomize
+  name: game-sample
+spec:
+  # TODO(user): Add fields here
