@@ -1,71 +1,61 @@
 # games-manager
 
-A Kubernetes controller, and soon a small web UI, for self-service game
-servers. Friends create and run their own Minecraft, Valheim or Factorio
-servers. The platform stays in git; the servers themselves don't.
+A Kubernetes operator for persistent, self-service game servers. Publish an
+administrator-approved catalog of games and immutable versions; manage
+individual servers using Kubernetes resources, GitOps or a future UI.
 
-## Resources
+- **Game**: a cluster-scoped catalog entry.
+- **GameVersion**: an immutable, cluster-scoped deployment recipe belonging
+  to a Game. Different servers can select different versions.
+- **GameServer**: a namespaced instance with an explicit version, resource
+  preset, running state and optional owner metadata.
 
-- **`Game`** (cluster-scoped, kept in git): how to run one game. Its image,
-  command, ports, how players connect (a hostname, or a slot from a port
-  pool), resource presets and storage size.
-- **`GameServer`** (namespaced, created at runtime): one server of one game.
-  Its owner, whether it's running, and its size preset.
+Running servers get a StatefulSet, a retained world PVC and a Service.
+Start/stop, restarts, explicit upgrades, recovery and opt-in purge are
+implemented. Ordinary ClusterIP, NodePort and LoadBalancer Services work
+without Longhorn, Tailscale or mc-router; those integrations are optional.
 
-The controller turns each `GameServer` into:
+This is an early **v1alpha1** API with breaking changes. The UI and OIDC
+support, including Pocket ID integration, are **planned**, not implemented.
+The first target is persistent community servers on one cluster. Session
+matchmaking, ephemeral fleets and multi-cluster orchestration are outside
+the current scope. Public edge forwarders are managed separately.
 
-- a **StatefulSet** with 0 or 1 replicas, from `spec.running`. Changing
-  `spec.restartedAt` restarts it.
-- a **PVC**, `<server>-world`, labeled into the Longhorn `games` recurring-job
-  group so backup jobs for that group cover every server. It has no owner:
-  deleting a server keeps its world. Annotate the server with
-  `games.homelab.io/purge: "true"` before deleting it to remove the world too.
-- a **Service**. A `Hostname` game gets a ClusterIP that mc-router discovers
-  by annotation. A `PortPool` game gets a Tailscale LoadBalancer named
-  `<game>-slot-<n>`, which the edge forwarder routes the slot's public ports
-  to. The slot is assigned once and kept in `spec.slot`, so a restored server
-  keeps its address.
+## Guides
 
-`examples/` has a `Game` and a `GameServer` for Minecraft (Hostname) and
-Valheim (PortPool). The tests check that the CRDs accept them.
+- [Installation and first server](docs/getting-started.md)
+- [Version selection and alpha migration](docs/versions.md)
+- [Networking and optional integrations](docs/networking.md)
+- [World retention, storage and backups](docs/storage.md)
+- [Controller and CRD upgrades](docs/upgrading.md)
+- [Tenancy and planned OIDC UI](docs/authentication.md)
+- [Public roadmap](ROADMAP.md), [contributing](CONTRIBUTING.md) and
+  [security reporting](SECURITY.md)
 
-## Status
-
-Early: `v1alpha1`, and the API will change. Design and roadmap are tracked in
-the homelab project (CAT-84). It's built for one cluster first, so it assumes
-Longhorn for storage and the Tailscale operator for exposing servers.
+A shared namespace works for trusted friends. Multiple namespaces also work:
+hostnames include the namespace and slots are reserved across namespaces.
+The owner field alone does not restrict API access.
 
 ## Development
 
 ```sh
-make generate manifests   # regenerate deepcopy code and CRDs
-make test                 # unit and envtest tests
+make generate manifests chart
+make test
+make lint
 make build
 ```
 
-Scaffolded with kubebuilder v4.6.0.
+Unit/envtest checks cover validation, generated resources, slots, version
+selection and world lifecycle. The Helm/Kind e2e suite exercises real pods,
+explicit upgrades, stop/start, recovery and purge. See CONTRIBUTING.md.
 
-## Releasing
+## Releases
 
-Release Please keeps a release PR open with the next version and changelog,
-worked out from [conventional commits](https://www.conventionalcommits.org)
-on `main`. PRs are squash-merged, so the PR title is that commit, and CI
-checks it. `fix:` bumps the patch version, `feat:` the minor version, and,
-before 1.0, a breaking change also bumps the minor version. Merging the PR
-tags `vX.Y.Z` and publishes the image and chart to GHCR at that version. On
-`main`, Release Please runs only after lint, tests, e2e and the chart check
-pass.
-
-## Installing
-
-```sh
-helm install games-manager oci://ghcr.io/bafulton/charts/games-manager \
-  --version X.Y.Z --namespace games-manager --create-namespace
-```
-
-The chart installs the CRDs (from `chart/crds/`), the controller and its
-RBAC. `make chart` regenerates the chart's CRDs and ClusterRole from the API;
-CI fails if they're out of date.
+Release Please opens version/changelog PRs from conventional commits. PRs
+are squash-merged, so titles follow that format. Checks precede publishing
+the image and OCI chart to GHCR. Before 1.0, breaking changes increment the
+minor version. Design, roadmap and compatibility information live here so
+contributors do not need access to a private homelab tracker.
 
 ## License
 

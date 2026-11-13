@@ -1,0 +1,57 @@
+# Default StorageClass, ClusterIP, no integrations.
+# Connect with: kubectl port-forward -n games service/alice 25565:25565
+apiVersion: games.homelab.io/v1alpha1
+kind: Game
+metadata:
+  name: minecraft
+spec:
+  description: Minecraft Java servers
+---
+apiVersion: games.homelab.io/v1alpha1
+kind: GameVersion
+metadata:
+  name: minecraft-direct-1-21-4
+spec:
+  game: minecraft
+  template:
+    image: itzg/minecraft-server:2026.10.1
+    env:
+      - name: EULA
+        value: "TRUE"
+      - name: TYPE
+        value: PAPER
+      - name: VERSION
+        value: "1.21.4"
+      - name: MEMORY
+        value: 2G
+    ports:
+      - name: java
+        containerPort: 25565
+    connection:
+      type: Service
+    sizes:
+      - name: small
+        resources:
+          requests: {cpu: 500m, memory: 2560Mi}
+          limits: {memory: 3Gi}
+    defaultSize: small
+    storage:
+      size: 10Gi
+      mountPath: /data
+    readinessProbe:
+      exec:
+        command: [mc-health]
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      failureThreshold: 30
+    terminationGracePeriodSeconds: 120
+---
+apiVersion: games.homelab.io/v1alpha1
+kind: GameServer
+metadata:
+  name: alice
+  namespace: games
+spec:
+  game: minecraft
+  gameVersion: minecraft-direct-1-21-4
+  owner: alice

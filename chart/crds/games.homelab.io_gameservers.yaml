@@ -191,8 +191,8 @@ spec:
                 type: string
               owner:
                 description: |-
-                  Owner is who the server belongs to, as their identity-provider
-                  username. The UI lets only the owner change it.
+                  Owner is descriptive ownership metadata, not a verified identity or
+                  an authorization boundary. Direct API access is governed by RBAC.
                 type: string
               restartedAt:
                 description: RestartedAt restarts the server when it changes.

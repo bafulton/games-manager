@@ -43,8 +43,8 @@ type GameServerSpec struct {
 	// +kubebuilder:validation:MaxLength=253
 	GameVersion string `json:"gameVersion"`
 
-	// Owner is who the server belongs to, as their identity-provider
-	// username. The UI lets only the owner change it.
+	// Owner is descriptive ownership metadata, not a verified identity or
+	// an authorization boundary. Direct API access is governed by RBAC.
 	// +optional
 	Owner string `json:"owner,omitempty"`
 
