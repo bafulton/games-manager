@@ -1,0 +1,30 @@
+{{- if .Values.leaderElection }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "games-manager.name" . }}-leader-election
+  labels:
+    {{- include "games-manager.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "games-manager.name" . }}-leader-election
+  labels:
+    {{- include "games-manager.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "games-manager.name" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "games-manager.name" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
