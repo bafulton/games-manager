@@ -1,3 +1,4 @@
 # Only the cross-compiled managers are needed in the build context.
 *
 !bin/linux-*/manager
+!LICENSE

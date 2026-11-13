@@ -4,8 +4,10 @@
 # is needed in the build.
 FROM gcr.io/distroless/static:nonroot
 ARG TARGETARCH
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /
 COPY bin/linux-${TARGETARCH}/manager /manager
+COPY LICENSE /licenses/LICENSE
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

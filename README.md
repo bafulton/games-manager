@@ -66,3 +66,7 @@ helm install games-manager oci://ghcr.io/bafulton/charts/games-manager \
 The chart installs the CRDs (from `chart/crds/`), the controller and its
 RBAC. `make chart` regenerates the chart's CRDs and ClusterRole from the API;
 CI fails if they're out of date.
+
+## License
+
+Licensed under [Apache-2.0](LICENSE).
