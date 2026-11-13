@@ -114,6 +114,16 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 
+	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionHostname {
+		conflict, err := r.hostnameConflict(ctx, game, server)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if conflict != "" {
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, r.setError(ctx, server, "HostnameConflict", conflict)
+		}
+	}
+
 	if err := r.ensurePVC(ctx, game, server); err != nil {
 		return ctrl.Result{}, err
 	}
@@ -160,6 +170,40 @@ func (r *GameServerReconciler) validateSlot(ctx context.Context, game *gamesv1al
 		}
 	}
 	return nil
+}
+
+// hostnameConflict describes the server in another namespace that already
+// claims server's hostname, or returns "" when there is none. Hostnames
+// leave out the namespace, so same-named servers in two namespaces of
+// Games sharing a domain would collide; the older claim keeps the name.
+func (r *GameServerReconciler) hostnameConflict(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) (string, error) {
+	servers := &gamesv1alpha1.GameServerList{}
+	if err := r.APIReader.List(ctx, servers); err != nil {
+		return "", err
+	}
+	want := address(game, server)
+	for _, other := range servers.Items {
+		if other.Name != server.Name || other.Namespace == server.Namespace || !olderThan(&other, server) {
+			continue
+		}
+		otherGame := game
+		if other.Spec.Game != game.Name {
+			otherGame = &gamesv1alpha1.Game{}
+			if err := r.Get(ctx, types.NamespacedName{Name: other.Spec.Game}, otherGame); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return "", err
+			}
+			if otherGame.Spec.Connection.Type != gamesv1alpha1.ConnectionHostname {
+				continue
+			}
+		}
+		if address(otherGame, &other) == want {
+			return fmt.Sprintf("hostname %s is already used by %s/%s", want, other.Namespace, other.Name), nil
+		}
+	}
+	return "", nil
 }
 
 // olderThan reports whether a's claim predates b's: a server already

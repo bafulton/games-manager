@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -205,6 +206,41 @@ var _ = Describe("GameServer Controller", func() {
 		// envtest runs no PVC protection controller, so a deleted PVC is gone
 		// or, at most, marked for deletion.
 		Expect(apierrors.IsNotFound(err) || !pvc.DeletionTimestamp.IsZero()).To(BeTrue())
+	})
+
+	It("keeps a hostname with the server that claimed it first", func() {
+		const otherNamespace = "other"
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: otherNamespace}}
+		if err := k8sClient.Create(ctx, ns); !apierrors.IsAlreadyExists(err) {
+			Expect(err).NotTo(HaveOccurred())
+		}
+		first := server("alice", "minecraft")
+		first.Namespace = testNamespace
+		Expect(k8sClient.Create(ctx, first)).To(Succeed())
+		reconcileUntilSettled("alice")
+
+		second := server("alice", "minecraft")
+		second.Namespace = otherNamespace
+		Expect(k8sClient.Create(ctx, second)).To(Succeed())
+		key := client.ObjectKeyFromObject(second)
+		for range 2 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(k8sClient.Get(ctx, key, second)).To(Succeed())
+		Expect(second.Status.Phase).To(Equal(gamesv1alpha1.PhaseError))
+		Expect(second.Status.Conditions[0].Reason).To(Equal("HostnameConflict"))
+		err := k8sClient.Get(ctx, key, &corev1.Service{})
+		Expect(apierrors.IsNotFound(err)).To(BeTrue(), "the second server must not advertise the hostname")
+
+		By("leaving the first server alone")
+		reconcileUntilSettled("alice")
+		get(first, "alice")
+		Expect(first.Status.Phase).NotTo(Equal(gamesv1alpha1.PhaseError))
+
+		second.Finalizers = nil
+		Expect(k8sClient.Update(ctx, second)).To(Succeed())
+		Expect(k8sClient.Delete(ctx, second)).To(Succeed())
 	})
 
 	It("rejects duplicate and out-of-range restored slots without provisioning them", func() {
