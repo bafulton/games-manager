@@ -145,7 +145,7 @@ func TestPVCIsNotOwnedAndJoinsBackups(t *testing.T) {
 	if len(pvc.OwnerReferences) != 0 {
 		t.Error("the world PVC must not be owned, or deleting the server would delete it")
 	}
-	if pvc.Labels[longhornGroupLabel] != "enabled" || pvc.Labels[longhornSourceLabel] != "enabled" {
+	if pvc.Labels[longhornGroupLabel] != longhornEnabled || pvc.Labels[longhornSourceLabel] != longhornEnabled {
 		t.Errorf("PVC labels %v should put it in the Longhorn games backup group", pvc.Labels)
 	}
 	if *pvc.Spec.StorageClassName != "config" {

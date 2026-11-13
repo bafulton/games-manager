@@ -24,6 +24,7 @@ const (
 	// server's world without per-server configuration.
 	longhornSourceLabel  = "recurring-job.longhorn.io/source"
 	longhornGroupLabel   = "recurring-job-group.longhorn.io/games"
+	longhornEnabled      = "enabled"
 	mcRouterAnnotation   = "mc-router.itzg.me/externalServerName"
 	tailscaleHostnameKey = "tailscale.com/hostname"
 	tailscaleTagsKey     = "tailscale.com/tags"
@@ -95,8 +96,8 @@ func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string 
 
 func desiredPVC(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) *corev1.PersistentVolumeClaim {
 	l := labels(game, server)
-	l[longhornSourceLabel] = "enabled"
-	l[longhornGroupLabel] = "enabled"
+	l[longhornSourceLabel] = longhornEnabled
+	l[longhornGroupLabel] = longhornEnabled
 
 	storageClass := game.Spec.Storage.StorageClassName
 	if storageClass == "" {

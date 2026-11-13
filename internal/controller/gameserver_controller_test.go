@@ -16,6 +16,8 @@ import (
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
 )
 
+const testNamespace = "default"
+
 var _ = Describe("GameServer Controller", func() {
 	ctx := context.Background()
 
@@ -27,14 +29,14 @@ var _ = Describe("GameServer Controller", func() {
 	reconcileUntilSettled := func(name string) {
 		for range 3 {
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: name, Namespace: "default"},
+				NamespacedName: types.NamespacedName{Name: name, Namespace: testNamespace},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		}
 	}
 
 	get := func(obj client.Object, name string) {
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, obj)).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, obj)).To(Succeed())
 	}
 
 	BeforeEach(func() {
@@ -56,13 +58,13 @@ var _ = Describe("GameServer Controller", func() {
 			Expect(k8sClient.Update(ctx, s)).To(Succeed())
 			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, s))).To(Succeed())
 		}
-		Expect(k8sClient.DeleteAllOf(ctx, &corev1.PersistentVolumeClaim{}, client.InNamespace("default"))).To(Succeed())
-		Expect(k8sClient.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace("default"))).To(Succeed())
+		Expect(k8sClient.DeleteAllOf(ctx, &corev1.PersistentVolumeClaim{}, client.InNamespace(testNamespace))).To(Succeed())
+		Expect(k8sClient.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(testNamespace))).To(Succeed())
 	})
 
 	It("builds a world PVC, StatefulSet and Service for a server", func() {
 		s := server("alice", "minecraft")
-		s.Namespace = "default"
+		s.Namespace = testNamespace
 		Expect(k8sClient.Create(ctx, s)).To(Succeed())
 		reconcileUntilSettled("alice")
 
@@ -87,7 +89,7 @@ var _ = Describe("GameServer Controller", func() {
 
 	It("stops a server by scaling it to zero", func() {
 		s := server("alice", "minecraft")
-		s.Namespace = "default"
+		s.Namespace = testNamespace
 		s.Spec.Running = ptr.To(false)
 		Expect(k8sClient.Create(ctx, s)).To(Succeed())
 		reconcileUntilSettled("alice")
@@ -102,7 +104,7 @@ var _ = Describe("GameServer Controller", func() {
 	It("gives each port pool server its own slot, and keeps it", func() {
 		for _, name := range []string{"bob", "carol"} {
 			s := server(name, "valheim")
-			s.Namespace = "default"
+			s.Namespace = testNamespace
 			Expect(k8sClient.Create(ctx, s)).To(Succeed())
 			reconcileUntilSettled(name)
 		}
@@ -129,7 +131,7 @@ var _ = Describe("GameServer Controller", func() {
 		for i := range game.Spec.Connection.PortPool.Slots + 1 {
 			name := []string{"s0", "s1", "s2", "s3", "s4"}[i]
 			s := server(name, "valheim")
-			s.Namespace = "default"
+			s.Namespace = testNamespace
 			Expect(k8sClient.Create(ctx, s)).To(Succeed())
 			reconcileUntilSettled(name)
 		}
@@ -142,7 +144,7 @@ var _ = Describe("GameServer Controller", func() {
 	It("keeps the world on delete, and removes it only on purge", func() {
 		for _, name := range []string{"kept", "purged"} {
 			s := server(name, "minecraft")
-			s.Namespace = "default"
+			s.Namespace = testNamespace
 			Expect(k8sClient.Create(ctx, s)).To(Succeed())
 			reconcileUntilSettled(name)
 		}
@@ -157,14 +159,14 @@ var _ = Describe("GameServer Controller", func() {
 			get(s, name)
 			Expect(k8sClient.Delete(ctx, s)).To(Succeed())
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: name, Namespace: "default"},
+				NamespacedName: types.NamespacedName{Name: name, Namespace: testNamespace},
 			})
 			Expect(err).NotTo(HaveOccurred())
 		}
 
 		get(&corev1.PersistentVolumeClaim{}, "kept-world")
 		pvc := &corev1.PersistentVolumeClaim{}
-		err := k8sClient.Get(ctx, types.NamespacedName{Name: "purged-world", Namespace: "default"}, pvc)
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: "purged-world", Namespace: testNamespace}, pvc)
 		// envtest runs no PVC protection controller, so a deleted PVC is gone
 		// or, at most, marked for deletion.
 		Expect(apierrors.IsNotFound(err) || !pvc.DeletionTimestamp.IsZero()).To(BeTrue())
