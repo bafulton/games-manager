@@ -1,8 +1,9 @@
 name: Release Please
 
-# Keeps a release PR open with the next version and changelog, worked out
-# from conventional commits on main. Merging it tags the release, and the
-# publish job then builds and pushes the image and chart.
+# On every push to main: run the checks, then let Release Please update its
+# release PR (next version and changelog, from conventional commits).
+# Merging that PR tags vX.Y.Z, and the publish job builds and pushes the
+# image and chart. Nothing is released from a commit that failed a check.
 on:
   push:
     branches: [main]
@@ -11,14 +12,28 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml
+  tests:
+    uses: ./.github/workflows/test.yml
+  e2e:
+    uses: ./.github/workflows/test-e2e.yml
+  chart:
+    uses: ./.github/workflows/chart.yml
+
   release-please:
+    needs: [lint, tests, e2e, chart]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
+      # Release Please labels its PRs, and labels use the issues API.
+      issues: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v5
@@ -37,3 +52,4 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       version: ${{ needs.release-please.outputs.version }}
+      ref: ${{ needs.release-please.outputs.sha }}

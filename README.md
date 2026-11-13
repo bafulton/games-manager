@@ -49,9 +49,12 @@ Scaffolded with kubebuilder v4.6.0.
 
 Release Please keeps a release PR open with the next version and changelog,
 worked out from [conventional commits](https://www.conventionalcommits.org)
-on `main`: `fix:` bumps the patch version, `feat:` the minor version, and,
+on `main`. PRs are squash-merged, so the PR title is that commit, and CI
+checks it. `fix:` bumps the patch version, `feat:` the minor version, and,
 before 1.0, a breaking change also bumps the minor version. Merging the PR
-tags `vX.Y.Z` and publishes the image and chart to GHCR at that version.
+tags `vX.Y.Z` and publishes the image and chart to GHCR at that version. On
+`main`, Release Please runs only after lint, tests, e2e and the chart check
+pass.
 
 ## Installing
 

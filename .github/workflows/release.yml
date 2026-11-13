@@ -12,6 +12,10 @@ on:
         description: Version to publish, without the leading v.
         required: true
         type: string
+      ref:
+        description: Commit to build - the release commit.
+        required: true
+        type: string
   push:
     tags: ['v*.*.*']
 
@@ -22,8 +26,13 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
+      # The release commit itself: Release Please's sha when called, the
+      # tagged commit when a tag is pushed.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Read version
         id: meta
@@ -69,10 +78,11 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/games-manager:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/games-manager:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/games-manager:sha-${{ inputs.ref || github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ inputs.ref || github.sha }}
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max

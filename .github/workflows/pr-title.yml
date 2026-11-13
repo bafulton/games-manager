@@ -1,0 +1,20 @@
+name: PR title
+
+# PRs are squash-merged, so the title becomes the commit on main that
+# Release Please reads for the version bump and changelog.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-commit:
+    name: Conventional Commit title
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
