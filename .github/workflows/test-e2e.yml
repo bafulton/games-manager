@@ -23,6 +23,23 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # setup-go's cache is one entry shared by every job and saved by
+          # whichever finishes first, so it never holds this job's
+          # cross-compiled packages. This job keeps its own below.
+          cache: false
+
+      # Restored on every run; saved only from main, so pull requests reuse
+      # main's build cache without paying to upload their own.
+      - name: Restore Go build cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-e2e-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-e2e-${{ hashFiles('go.sum') }}-
+            go-e2e-
 
       - name: Install kind
         run: |
@@ -35,7 +52,7 @@ jobs:
         with:
           version: v4.3.1
 
-      # Compiled on the runner, where setup-go restores Go's build cache; the
+      # Compiled on the runner, with this job's Go build cache; the
       # image build only copies the binary in.
       - name: Build the controller image
         run: |
@@ -51,3 +68,12 @@ jobs:
         run: |
           kind create cluster --name "$KIND_CLUSTER"
           go test ./test/e2e/ -v -ginkgo.v
+
+      - name: Save Go build cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-e2e-${{ hashFiles('go.sum') }}-${{ github.sha }}
