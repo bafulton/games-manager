@@ -6,6 +6,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
@@ -253,16 +254,16 @@ func mutateService(svc *corev1.Service, game *gamesv1alpha1.Game, server *gamesv
 	ports := make([]corev1.ServicePort, 0, len(game.Spec.Ports))
 	for _, p := range game.Spec.Ports {
 		ports = append(ports, corev1.ServicePort{
-			Name:     p.Name,
-			Port:     p.ContainerPort,
-			Protocol: protocol(p),
+			Name:       p.Name,
+			Port:       p.ContainerPort,
+			TargetPort: intstr.FromString(p.Name),
+			Protocol:   protocol(p),
 		})
 	}
 	// Keep allocated or defaulted fields of existing ports.
 	for i := range ports {
 		for _, old := range svc.Spec.Ports {
 			if old.Name == ports[i].Name {
-				ports[i].TargetPort = old.TargetPort
 				ports[i].NodePort = old.NodePort
 			}
 		}
