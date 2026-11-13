@@ -139,8 +139,11 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, r.updateStatus(ctx, game, server, sts)
 }
 
-// validateSlot checks explicit/restored reservations too. A conflicting slot
-// is never silently changed, because that would change the public address.
+// validateSlot checks explicit/restored reservations too. When two servers
+// hold the same slot, the older claim keeps it and the newer reports the
+// conflict.
+// A conflicting slot is never silently changed, because that would change
+// the public address.
 func (r *GameServerReconciler) validateSlot(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) error {
 	slot := *server.Spec.Slot
 	if slot < 0 || slot >= game.Spec.Connection.PortPool.Slots {
@@ -151,11 +154,27 @@ func (r *GameServerReconciler) validateSlot(ctx context.Context, game *gamesv1al
 		return err
 	}
 	for _, other := range servers.Items {
-		if other.UID != server.UID && other.Spec.Game == game.Name && other.Spec.Slot != nil && *other.Spec.Slot == slot {
+		if other.UID != server.UID && other.Spec.Game == game.Name && other.Spec.Slot != nil && *other.Spec.Slot == slot &&
+			olderThan(&other, server) {
 			return fmt.Errorf("slot %d is also reserved by %s/%s", slot, other.Namespace, other.Name)
 		}
 	}
 	return nil
+}
+
+// olderThan reports whether a's claim predates b's: a server already
+// provisioned (it reports an address), running or stopped, beats one that
+// isn't, then the earlier created wins. Creation times have one-second
+// precision, so namespace and name break ties, making exactly one of two
+// servers the winner.
+func olderThan(a, b *gamesv1alpha1.GameServer) bool {
+	if provisioned := a.Status.Address != ""; provisioned != (b.Status.Address != "") {
+		return provisioned
+	}
+	if !a.CreationTimestamp.Equal(&b.CreationTimestamp) {
+		return a.CreationTimestamp.Before(&b.CreationTimestamp)
+	}
+	return a.Namespace+"/"+a.Name < b.Namespace+"/"+b.Name
 }
 
 // ensurePVC creates the server's world volume if it doesn't exist. An

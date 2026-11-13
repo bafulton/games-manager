@@ -228,6 +228,11 @@ var _ = Describe("GameServer Controller", func() {
 			err = k8sClient.Get(ctx, client.ObjectKeyFromObject(s), &corev1.Service{})
 			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}
+		By("leaving the original holder of the slot running")
+		reconcileUntilSettled("original")
+		original := &gamesv1alpha1.GameServer{}
+		get(original, "original")
+		Expect(original.Status.Phase).NotTo(Equal(gamesv1alpha1.PhaseError))
 	})
 
 	It("retries an exhausted pool and allocates a subsequently released slot", func() {
