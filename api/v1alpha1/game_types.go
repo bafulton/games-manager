@@ -117,10 +117,17 @@ type GameStorage struct {
 	// +kubebuilder:validation:MinLength=1
 	MountPath string `json:"mountPath"`
 
-	// StorageClassName for each server's PVC.
-	// +kubebuilder:default=config
+	// StorageClassName for each server's PVC. Omit to use the cluster default;
+	// an explicit empty string disables dynamic provisioning.
 	// +optional
-	StorageClassName string `json:"storageClassName,omitempty"`
+	StorageClassName *string `json:"storageClassName,omitempty"`
+
+	// Labels and Annotations customize new PVCs, for example to opt into a
+	// storage provider's backup jobs. Existing world volumes are not changed.
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // GameSpec defines how to run servers of one game.
