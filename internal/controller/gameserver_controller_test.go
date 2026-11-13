@@ -79,11 +79,11 @@ var _ = Describe("GameServer Controller", func() {
 
 		svc := &corev1.Service{}
 		get(svc, "alice")
-		Expect(svc.Annotations).To(HaveKeyWithValue(mcRouterAnnotation, "alice.mc.example.com"))
+		Expect(svc.Annotations).To(HaveKeyWithValue(mcRouterAnnotation, "alice.default.mc.example.com"))
 
 		get(s, "alice")
 		Expect(s.Finalizers).To(ContainElement(finalizer))
-		Expect(s.Status.Address).To(Equal("alice.mc.example.com"))
+		Expect(s.Status.Address).To(Equal("alice.default.mc.example.com"))
 		Expect(s.Status.Phase).To(Equal(gamesv1alpha1.PhaseStarting))
 	})
 

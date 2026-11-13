@@ -152,12 +152,12 @@ var _ = Describe("games-manager", Ordered, func() {
 
 		address, err := get("gameserver", "alice", "-o", "jsonpath={.status.address}")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(address).To(Equal("alice.e2e.example.com"))
+		Expect(address).To(Equal("alice.games-e2e.e2e.example.com"))
 
 		const routerAnnotation = `jsonpath={.metadata.annotations.mc-router\.itzg\.me/externalServerName}`
 		annotation, err := get("service", "alice", "-o", routerAnnotation)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(annotation).To(Equal("alice.e2e.example.com"))
+		Expect(annotation).To(Equal("alice.games-e2e.e2e.example.com"))
 	})
 
 	It("stops it with running: false, and starts it again", func() {

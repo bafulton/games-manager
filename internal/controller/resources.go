@@ -79,7 +79,7 @@ func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string 
 	conn := game.Spec.Connection
 	switch conn.Type {
 	case gamesv1alpha1.ConnectionHostname:
-		return fmt.Sprintf("%s.%s", server.Name, conn.Hostname.Domain)
+		return fmt.Sprintf("%s.%s.%s", server.Name, server.Namespace, conn.Hostname.Domain)
 	case gamesv1alpha1.ConnectionPortPool:
 		if server.Spec.Slot == nil {
 			return ""

@@ -1,4 +1,4 @@
-# Minecraft Java, one hostname per server: alice.mc.example.com. mc-router
+# Minecraft Java, one hostname per server: alice.games.mc.example.com. mc-router
 # (itzg/mc-router, run with --in-kube-cluster) finds each server's Service by
 # its mc-router.itzg.me/externalServerName annotation and routes by the
 # hostname the client sends, so every server shares port 25565.

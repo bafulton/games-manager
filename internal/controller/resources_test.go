@@ -64,7 +64,7 @@ func server(name, game string) *gamesv1alpha1.GameServer {
 
 func TestAddress(t *testing.T) {
 	alice := server("alice", "minecraft")
-	if got, want := address(minecraft(), alice), "alice.mc.example.com"; got != want {
+	if got, want := address(minecraft(), alice), "alice.games.mc.example.com"; got != want {
 		t.Errorf("hostname address = %q, want %q", got, want)
 	}
 
@@ -76,6 +76,15 @@ func TestAddress(t *testing.T) {
 	// BasePort + slot*stride = 2456 + 3*2.
 	if got, want := address(valheim(), bob), "valheim.example.com:2462"; got != want {
 		t.Errorf("port pool address = %q, want %q", got, want)
+	}
+}
+
+func TestHostnameSeparatesNamespaces(t *testing.T) {
+	a := server("alice", "minecraft")
+	b := a.DeepCopy()
+	b.Namespace = "other"
+	if address(minecraft(), a) == address(minecraft(), b) {
+		t.Fatal("identically named servers in different namespaces must have different addresses")
 	}
 }
 
@@ -159,7 +168,7 @@ func TestServiceByConnection(t *testing.T) {
 	if mc.Spec.Type != corev1.ServiceTypeClusterIP {
 		t.Errorf("hostname game service type = %s, want ClusterIP", mc.Spec.Type)
 	}
-	if got := mc.Annotations[mcRouterAnnotation]; got != "alice.mc.example.com" {
+	if got := mc.Annotations[mcRouterAnnotation]; got != "alice.games.mc.example.com" {
 		t.Errorf("mc-router annotation = %q", got)
 	}
 
