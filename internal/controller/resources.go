@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"maps"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -90,13 +91,12 @@ func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string 
 }
 
 func desiredPVC(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) *corev1.PersistentVolumeClaim {
-	l := map[string]string{}
-	for key, value := range game.Spec.Storage.Labels {
-		l[key] = value
+	// The selector labels go last, so a Game can't override them.
+	l := maps.Clone(game.Spec.Storage.Labels)
+	if l == nil {
+		l = map[string]string{}
 	}
-	for key, value := range labels(game, server) {
-		l[key] = value
-	}
+	maps.Copy(l, labels(game, server))
 
 	// No owner reference: deleting the GameServer must not delete its
 	// world. The finalizer deletes it only when the server is purged.
@@ -105,7 +105,7 @@ func desiredPVC(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) *cor
 			Name:        pvcName(server),
 			Namespace:   server.Namespace,
 			Labels:      l,
-			Annotations: game.Spec.Storage.Annotations,
+			Annotations: maps.Clone(game.Spec.Storage.Annotations),
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
