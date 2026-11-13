@@ -17,6 +17,7 @@ rules:
   - games.homelab.io
   resources:
   - games
+  - gameversions
   verbs:
   - create
   - delete

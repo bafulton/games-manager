@@ -12,6 +12,12 @@ import (
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
 )
 
+// gameTemplate is the resolved catalog identity and selected immutable recipe.
+type gameTemplate struct {
+	metav1.ObjectMeta
+	Spec gamesv1alpha1.GameTemplateSpec
+}
+
 const (
 	labelGame   = "games.homelab.io/game"
 	labelServer = "games.homelab.io/server"
@@ -27,7 +33,7 @@ const (
 	worldVolumeName      = "world"
 )
 
-func labels(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) map[string]string {
+func labels(game *gameTemplate, server *gamesv1alpha1.GameServer) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/name":       game.Name,
 		"app.kubernetes.io/instance":   server.Name,
@@ -49,13 +55,13 @@ func pvcName(server *gamesv1alpha1.GameServer) string {
 
 // slotHostname is the tailnet name of a PortPool slot's Service. The edge
 // forwarder routes each slot's public ports to it.
-func slotHostname(game *gamesv1alpha1.Game, slot int32) string {
+func slotHostname(game *gameTemplate, slot int32) string {
 	return fmt.Sprintf("%s-slot-%d", game.Name, slot)
 }
 
 // sizeFor returns the server's size preset, falling back to the Game's
 // default.
-func sizeFor(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) (*gamesv1alpha1.SizePreset, error) {
+func sizeFor(game *gameTemplate, server *gamesv1alpha1.GameServer) (*gamesv1alpha1.SizePreset, error) {
 	name := server.Spec.Size
 	if name == "" {
 		name = game.Spec.DefaultSize
@@ -70,7 +76,7 @@ func sizeFor(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) (*games
 
 // address is where players connect, or "" while a PortPool server has no
 // slot yet.
-func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string {
+func address(game *gameTemplate, server *gamesv1alpha1.GameServer) string {
 	conn := game.Spec.Connection
 	switch conn.Type {
 	case gamesv1alpha1.ConnectionHostname:
@@ -89,7 +95,7 @@ func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string 
 	return ""
 }
 
-func desiredPVC(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) *corev1.PersistentVolumeClaim {
+func desiredPVC(game *gameTemplate, server *gamesv1alpha1.GameServer) *corev1.PersistentVolumeClaim {
 	l := map[string]string{}
 	for key, value := range game.Spec.Storage.Labels {
 		l[key] = value
@@ -131,7 +137,7 @@ func defaultPodSecurityContext() *corev1.PodSecurityContext {
 // mutateStatefulSet sets the fields of sts that the controller owns, leaving
 // defaulted and server-managed fields alone so CreateOrUpdate only writes on
 // a real change.
-func mutateStatefulSet(sts *appsv1.StatefulSet, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) error {
+func mutateStatefulSet(sts *appsv1.StatefulSet, game *gameTemplate, server *gamesv1alpha1.GameServer) error {
 	size, err := sizeFor(game, server)
 	if err != nil {
 		return err
@@ -152,11 +158,9 @@ func mutateStatefulSet(sts *appsv1.StatefulSet, game *gamesv1alpha1.Game, server
 
 	tpl := &sts.Spec.Template
 	tpl.Labels = labels(game, server)
-	tpl.Annotations = nil
+	tpl.Annotations = map[string]string{"games.homelab.io/gameVersion": server.Spec.GameVersion}
 	if server.Spec.RestartedAt != nil {
-		tpl.Annotations = map[string]string{
-			restartedAtAnnotation: server.Spec.RestartedAt.UTC().Format("2006-01-02T15:04:05Z"),
-		}
+		tpl.Annotations[restartedAtAnnotation] = server.Spec.RestartedAt.UTC().Format("2006-01-02T15:04:05Z")
 	}
 
 	pod := &tpl.Spec
@@ -234,7 +238,7 @@ func protocol(p gamesv1alpha1.GamePort) corev1.Protocol {
 // mutateService sets the fields of svc the controller owns. Hostname games
 // get a ClusterIP that mc-router discovers by annotation; PortPool games get
 // a Tailscale LoadBalancer named for their slot, which the edge forwards to.
-func mutateService(svc *corev1.Service, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) {
+func mutateService(svc *corev1.Service, game *gameTemplate, server *gamesv1alpha1.GameServer) {
 	svc.Labels = labels(game, server)
 	if svc.Annotations == nil {
 		svc.Annotations = map[string]string{}

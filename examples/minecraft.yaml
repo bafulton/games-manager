@@ -7,46 +7,55 @@ kind: Game
 metadata:
   name: minecraft
 spec:
-  # Multi-arch, and runs as uid 1000, so the default security contexts fit.
-  image: itzg/minecraft-server:2026.10.1
-  env:
-    - name: EULA
-      value: "TRUE"
-    - name: TYPE
-      value: PAPER
-    # The image sizes the JVM heap from this, so keep it under the memory
-    # limit with room for the JVM itself.
-    - name: MEMORY
-      value: 2G
-  ports:
-    - name: java
-      containerPort: 25565
-  connection:
-    type: Hostname
-    hostname:
-      domain: mc.example.com
-  sizes:
-    - name: small
-      resources:
-        requests: {cpu: 500m, memory: 2560Mi}
-        limits: {memory: 3Gi}
-    - name: large
-      resources:
-        requests: {cpu: "1", memory: 4608Mi}
-        limits: {memory: 5Gi}
-  defaultSize: small
-  storage:
-    size: 10Gi
-    mountPath: /data
-  # mc-health is part of the image: it pings the server like a client would.
-  readinessProbe:
-    exec:
-      command: [mc-health]
-    initialDelaySeconds: 30
-    periodSeconds: 10
-    failureThreshold: 30
-  # The image saves the world and stops cleanly on SIGTERM, so no preStop.
-  terminationGracePeriodSeconds: 120
+  description: Minecraft servers
+---
+apiVersion: games.homelab.io/v1alpha1
+kind: GameVersion
+metadata:
+  name: minecraft-v1
+spec:
+  game: minecraft
+  template:
+    # Multi-arch, and runs as uid 1000, so the default security contexts fit.
+    image: itzg/minecraft-server:2026.10.1
+    env:
+      - name: EULA
+        value: "TRUE"
+      - name: TYPE
+        value: PAPER
+      # The image sizes the JVM heap from this, so keep it under the memory
+      # limit with room for the JVM itself.
+      - name: MEMORY
+        value: 2G
+    ports:
+      - name: java
+        containerPort: 25565
+    connection:
+      type: Hostname
+      hostname:
+        domain: mc.example.com
+    sizes:
+      - name: small
+        resources:
+          requests: {cpu: 500m, memory: 2560Mi}
+          limits: {memory: 3Gi}
+      - name: large
+        resources:
+          requests: {cpu: "1", memory: 4608Mi}
+          limits: {memory: 5Gi}
+    defaultSize: small
+    storage:
+      size: 10Gi
+      mountPath: /data
+    # mc-health is part of the image: it pings the server like a client would.
+    readinessProbe:
+      exec:
+        command: [mc-health]
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      failureThreshold: 30
+    # The image saves the world and stops cleanly on SIGTERM, so no preStop.
+    terminationGracePeriodSeconds: 120
 ---
 apiVersion: games.homelab.io/v1alpha1
 kind: GameServer
@@ -55,6 +64,7 @@ metadata:
   namespace: games
 spec:
   game: minecraft
+  gameVersion: minecraft-v1
   owner: alice
   env:
     - name: MOTD

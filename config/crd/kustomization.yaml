@@ -4,6 +4,7 @@
 resources:
 - bases/games.homelab.io_games.yaml
 - bases/games.homelab.io_gameservers.yaml
+- bases/games.homelab.io_gameversions.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

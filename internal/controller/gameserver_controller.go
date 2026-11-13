@@ -35,7 +35,7 @@ type GameServerReconciler struct {
 	APIReader client.Reader
 }
 
-// +kubebuilder:rbac:groups=games.homelab.io,resources=games,verbs=get;list;watch
+// +kubebuilder:rbac:groups=games.homelab.io,resources=games;gameversions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=games.homelab.io,resources=gameservers,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=games.homelab.io,resources=gameservers/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=games.homelab.io,resources=gameservers/finalizers,verbs=update
@@ -83,13 +83,24 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, r.updateStatus(ctx, nil, server, sts)
 	}
 
-	game := &gamesv1alpha1.Game{}
-	if err := r.Get(ctx, types.NamespacedName{Name: server.Spec.Game}, game); err != nil {
+	catalog := &gamesv1alpha1.Game{}
+	if err := r.Get(ctx, types.NamespacedName{Name: server.Spec.Game}, catalog); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, r.setError(ctx, server, "GameNotFound", fmt.Sprintf("no Game named %q", server.Spec.Game))
 		}
 		return ctrl.Result{}, err
 	}
+	version := &gamesv1alpha1.GameVersion{}
+	if err := r.Get(ctx, types.NamespacedName{Name: server.Spec.GameVersion}, version); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrl.Result{}, r.setError(ctx, server, "GameVersionNotFound", fmt.Sprintf("no GameVersion named %q", server.Spec.GameVersion))
+		}
+		return ctrl.Result{}, err
+	}
+	if version.Spec.Game != server.Spec.Game {
+		return ctrl.Result{}, r.setError(ctx, server, "GameVersionMismatch", "the selected GameVersion belongs to a different Game")
+	}
+	game := &gameTemplate{ObjectMeta: catalog.ObjectMeta, Spec: version.Spec.Template}
 	if _, err := sizeFor(game, server); err != nil {
 		return ctrl.Result{}, r.setError(ctx, server, "UnknownSize", err.Error())
 	}
@@ -141,7 +152,7 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 
 // validateSlot checks explicit/restored reservations too. A conflicting slot
 // is never silently changed, because that would change the public address.
-func (r *GameServerReconciler) validateSlot(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) error {
+func (r *GameServerReconciler) validateSlot(ctx context.Context, game *gameTemplate, server *gamesv1alpha1.GameServer) error {
 	slot := *server.Spec.Slot
 	if slot < 0 || slot >= game.Spec.Connection.PortPool.Slots {
 		return fmt.Errorf("slot %d is outside Game %q's pool", slot, game.Name)
@@ -161,7 +172,7 @@ func (r *GameServerReconciler) validateSlot(ctx context.Context, game *gamesv1al
 // ensurePVC creates the server's world volume if it doesn't exist. An
 // existing one, including one left by a deleted server of the same name, is
 // reused as it is.
-func (r *GameServerReconciler) ensurePVC(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) error {
+func (r *GameServerReconciler) ensurePVC(ctx context.Context, game *gameTemplate, server *gamesv1alpha1.GameServer) error {
 	pvc := &corev1.PersistentVolumeClaim{}
 	err := r.Get(ctx, types.NamespacedName{Name: pvcName(server), Namespace: server.Namespace}, pvc)
 	if err == nil {
@@ -175,7 +186,7 @@ func (r *GameServerReconciler) ensurePVC(ctx context.Context, game *gamesv1alpha
 
 // freeSlot returns the lowest slot of game's pool that no GameServer holds,
 // or nil when every slot is taken.
-func (r *GameServerReconciler) freeSlot(ctx context.Context, game *gamesv1alpha1.Game) (*int32, error) {
+func (r *GameServerReconciler) freeSlot(ctx context.Context, game *gameTemplate) (*int32, error) {
 	servers := &gamesv1alpha1.GameServerList{}
 	if err := r.APIReader.List(ctx, servers); err != nil {
 		return nil, err
@@ -212,8 +223,9 @@ func (r *GameServerReconciler) finalize(ctx context.Context, server *gamesv1alph
 	return r.Update(ctx, server)
 }
 
-func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer, sts *appsv1.StatefulSet) error {
-	ready := sts.Status.ReadyReplicas >= 1
+func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gameTemplate, server *gamesv1alpha1.GameServer, sts *appsv1.StatefulSet) error {
+	ready := sts.Status.ReadyReplicas >= 1 && sts.Status.ObservedGeneration >= sts.Generation &&
+		sts.Status.CurrentRevision == sts.Status.UpdateRevision
 	phase := gamesv1alpha1.PhaseStarting
 	reason, message := "Starting", "waiting for the server's pod to be ready"
 	switch {
@@ -266,7 +278,11 @@ func (r *GameServerReconciler) serversOfGame(ctx context.Context, obj client.Obj
 	}
 	var requests []reconcile.Request
 	for _, s := range servers.Items {
-		if s.Spec.Game == obj.GetName() {
+		matches := s.Spec.Game == obj.GetName()
+		if _, isVersion := obj.(*gamesv1alpha1.GameVersion); isVersion {
+			matches = s.Spec.GameVersion == obj.GetName()
+		}
+		if matches {
 			requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&s)})
 		}
 	}
@@ -283,6 +299,7 @@ func (r *GameServerReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.StatefulSet{}).
 		Owns(&corev1.Service{}).
 		Watches(&gamesv1alpha1.Game{}, handler.EnqueueRequestsFromMapFunc(r.serversOfGame)).
+		Watches(&gamesv1alpha1.GameVersion{}, handler.EnqueueRequestsFromMapFunc(r.serversOfGame)).
 		Named("gameserver").
 		Complete(r)
 }

@@ -34,6 +34,12 @@ type GameServerSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="game is immutable"
 	Game string `json:"game"`
 
+	// GameVersion selects an immutable deployment recipe of this Game.
+	// Updating it explicitly upgrades this server, retaining its world and slot.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	GameVersion string `json:"gameVersion"`
+
 	// Owner is who the server belongs to, as their identity-provider
 	// username. The UI lets only the owner change it.
 	// +optional
@@ -85,6 +91,7 @@ type GameServerStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Game",type=string,JSONPath=`.spec.game`
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.spec.gameVersion`
 // +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.owner`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.status.address`

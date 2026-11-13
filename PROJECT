@@ -25,4 +25,11 @@ resources:
   kind: GameServer
   path: github.com/bafulton/games-manager/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+  domain: homelab.io
+  group: games
+  kind: GameVersion
+  path: github.com/bafulton/games-manager/api/v1alpha1
+  version: v1alpha1
 version: "3"

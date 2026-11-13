@@ -44,6 +44,7 @@ rules:
   - games.homelab.io
   resources:
   - games
+  - gameversions
   verbs:
   - get
   - list

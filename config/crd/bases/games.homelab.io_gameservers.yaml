@@ -18,6 +18,9 @@ spec:
     - jsonPath: .spec.game
       name: Game
       type: string
+    - jsonPath: .spec.gameVersion
+      name: Version
+      type: string
     - jsonPath: .spec.owner
       name: Owner
       type: string
@@ -179,6 +182,13 @@ spec:
                 x-kubernetes-validations:
                 - message: game is immutable
                   rule: self == oldSelf
+              gameVersion:
+                description: |-
+                  GameVersion selects an immutable deployment recipe of this Game.
+                  Updating it explicitly upgrades this server, retaining its world and slot.
+                maxLength: 253
+                minLength: 1
+                type: string
               owner:
                 description: |-
                   Owner is who the server belongs to, as their identity-provider
@@ -207,6 +217,7 @@ spec:
                 type: integer
             required:
             - game
+            - gameVersion
             type: object
             x-kubernetes-validations:
             - message: 'slot cannot change once assigned: it is the server''s public

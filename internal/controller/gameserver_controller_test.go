@@ -8,6 +8,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,8 +42,17 @@ var _ = Describe("GameServer Controller", func() {
 
 	BeforeEach(func() {
 		reconciler = &GameServerReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), APIReader: k8sClient}
-		for _, g := range []*gamesv1alpha1.Game{valheim(), minecraft()} {
-			err := k8sClient.Create(ctx, g)
+		for _, g := range []*gameTemplate{valheim(), minecraft()} {
+			catalog := &gamesv1alpha1.Game{ObjectMeta: g.ObjectMeta}
+			err := k8sClient.Create(ctx, catalog)
+			if !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+			version := &gamesv1alpha1.GameVersion{
+				ObjectMeta: metav1.ObjectMeta{Name: g.Name + "-v1"},
+				Spec:       gamesv1alpha1.GameVersionSpec{Game: g.Name, Template: g.Spec},
+			}
+			err = k8sClient.Create(ctx, version)
 			if !apierrors.IsAlreadyExists(err) {
 				Expect(err).NotTo(HaveOccurred())
 			}
@@ -60,6 +70,9 @@ var _ = Describe("GameServer Controller", func() {
 		}
 		Expect(k8sClient.DeleteAllOf(ctx, &corev1.PersistentVolumeClaim{}, client.InNamespace(testNamespace))).To(Succeed())
 		Expect(k8sClient.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(testNamespace))).To(Succeed())
+		Expect(k8sClient.DeleteAllOf(ctx, &corev1.Service{}, client.InNamespace(testNamespace))).To(Succeed())
+		Expect(k8sClient.DeleteAllOf(ctx, &gamesv1alpha1.GameVersion{})).To(Succeed())
+		Expect(k8sClient.DeleteAllOf(ctx, &gamesv1alpha1.Game{})).To(Succeed())
 	})
 
 	It("builds a world PVC, StatefulSet and Service for a server", func() {
@@ -110,7 +123,7 @@ var _ = Describe("GameServer Controller", func() {
 		Expect(k8sClient.Create(ctx, s)).To(Succeed())
 		reconcileUntilSettled("alice")
 		if removeGame {
-			Expect(k8sClient.Delete(ctx, minecraft())).To(Succeed())
+			Expect(k8sClient.Delete(ctx, &gamesv1alpha1.Game{ObjectMeta: minecraft().ObjectMeta})).To(Succeed())
 		}
 		get(s, "alice")
 		s.Spec.Size = "removed-size"
@@ -134,6 +147,56 @@ var _ = Describe("GameServer Controller", func() {
 		Expect(s.Status.Phase).To(Equal(gamesv1alpha1.PhaseStopped))
 		err := k8sClient.Get(ctx, types.NamespacedName{Name: "dormant-world", Namespace: testNamespace}, &corev1.PersistentVolumeClaim{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())
+	})
+
+	It("pins independent versions and upgrades one server without replacing its world or slot", func() {
+		s := server("versioned", "valheim")
+		s.Namespace = testNamespace
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		reconcileUntilSettled(s.Name)
+		pvc := &corev1.PersistentVolumeClaim{}
+		get(pvc, "versioned-world")
+		originalUID := pvc.UID
+		get(s, s.Name)
+		originalSlot := *s.Spec.Slot
+
+		v2 := &gamesv1alpha1.GameVersion{
+			ObjectMeta: metav1.ObjectMeta{Name: "valheim-v2"},
+			Spec:       gamesv1alpha1.GameVersionSpec{Game: "valheim", Template: valheim().Spec},
+		}
+		v2.Spec.Template.Image = "ghcr.io/example/valheim:2.0.0"
+		Expect(k8sClient.Create(ctx, v2)).To(Succeed())
+		reconcileUntilSettled(s.Name)
+		sts := &appsv1.StatefulSet{}
+		get(sts, s.Name)
+		Expect(sts.Spec.Template.Spec.Containers[0].Image).To(Equal(valheim().Spec.Image))
+
+		s.Spec.GameVersion = v2.Name
+		Expect(k8sClient.Update(ctx, s)).To(Succeed())
+		reconcileUntilSettled(s.Name)
+		get(sts, s.Name)
+		Expect(sts.Spec.Template.Spec.Containers[0].Image).To(Equal(v2.Spec.Template.Image))
+		get(pvc, "versioned-world")
+		Expect(pvc.UID).To(Equal(originalUID))
+		get(s, s.Name)
+		Expect(*s.Spec.Slot).To(Equal(originalSlot))
+	})
+
+	It("rejects edits to published version recipes", func() {
+		version := &gamesv1alpha1.GameVersion{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "minecraft-v1"}, version)).To(Succeed())
+		version.Spec.Template.Image = "example.com/changed:2"
+		Expect(k8sClient.Update(ctx, version)).NotTo(Succeed())
+	})
+
+	It("rejects a version belonging to a different game", func() {
+		s := server("mismatch", "minecraft")
+		s.Namespace = testNamespace
+		s.Spec.GameVersion = "valheim-v1"
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		reconcileUntilSettled(s.Name)
+		get(s, s.Name)
+		Expect(s.Status.Conditions[0].Reason).To(Equal("GameVersionMismatch"))
 	})
 
 	It("gives each port pool server its own slot, and keeps it", func() {
@@ -162,7 +225,6 @@ var _ = Describe("GameServer Controller", func() {
 
 	It("reports an error when every slot is taken", func() {
 		game := valheim()
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "valheim"}, game)).To(Succeed())
 		for i := range game.Spec.Connection.PortPool.Slots + 1 {
 			name := []string{"s0", "s1", "s2", "s3", "s4"}[i]
 			s := server(name, "valheim")

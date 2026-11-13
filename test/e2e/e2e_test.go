@@ -30,31 +30,40 @@ kind: Game
 metadata:
   name: sleeper
 spec:
-  image: busybox:1.37.0
-  command: [sh, -c, "[ -f /world/born ] || cat /proc/sys/kernel/random/uuid > /world/born; exec sleep 3600"]
-  ports:
-    - name: game
-      containerPort: 7777
-  connection:
-    type: Hostname
-    hostname:
-      domain: e2e.example.com
-  sizes:
-    - name: small
-      resources:
-        requests: {cpu: 10m, memory: 16Mi}
-        limits: {memory: 32Mi}
-  defaultSize: small
-  storage:
-    size: 64Mi
-    mountPath: /world
-    # Kind's local-path provisioner.
-    storageClassName: standard
-  readinessProbe:
-    exec:
-      command: [test, -f, /world/born]
-    periodSeconds: 2
-  terminationGracePeriodSeconds: 5
+  description: E2E sleeper
+---
+apiVersion: games.homelab.io/v1alpha1
+kind: GameVersion
+metadata:
+  name: sleeper-v1
+spec:
+  game: sleeper
+  template:
+    image: busybox:1.37.0
+    command: [sh, -c, "[ -f /world/born ] || cat /proc/sys/kernel/random/uuid > /world/born; exec sleep 3600"]
+    ports:
+      - name: game
+        containerPort: 7777
+    connection:
+      type: Hostname
+      hostname:
+        domain: e2e.example.com
+    sizes:
+      - name: small
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits: {memory: 32Mi}
+    defaultSize: small
+    storage:
+      size: 64Mi
+      mountPath: /world
+      # Kind's local-path provisioner.
+      storageClassName: standard
+    readinessProbe:
+      exec:
+        command: [test, -f, /world/born]
+      periodSeconds: 2
+    terminationGracePeriodSeconds: 5
 `
 
 func applyManifest(manifest string) {
@@ -73,6 +82,7 @@ metadata:
   namespace: %s
 spec:
   game: sleeper
+  gameVersion: sleeper-v1
   owner: e2e
 `, name, gamesNamespace))
 }
@@ -185,6 +195,26 @@ var _ = Describe("games-manager", Ordered, func() {
 		createServer("alice")
 		expectPhase("alice", "Running", time.Minute)
 		Expect(born("alice")).To(Equal(first), "a recreated server should find its old world")
+	})
+
+	It("upgrades only the server that selects a new version", func() {
+		createServer("carol")
+		expectPhase("carol", "Running", time.Minute)
+		first := born("carol")
+		v2 := strings.Replace(sleeperGame, "name: sleeper-v1", "name: sleeper-v2", 1)
+		v2 = strings.Replace(v2, "exec sleep 3600", "echo v2 > /world/release; exec sleep 3600", 1)
+		applyManifest(v2)
+		_, err := utils.Kubectl("patch", "gameserver", "carol", "-n", gamesNamespace,
+			"--type", "merge", "-p", `{"spec":{"gameVersion":"sleeper-v2"}}`)
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(func() (string, error) {
+			return utils.Kubectl("exec", "-n", gamesNamespace, "carol-0", "--", "cat", "/world/release")
+		}, time.Minute, 2*time.Second).Should(Equal("v2"))
+		Expect(born("carol")).To(Equal(first))
+		version, err := get("statefulset", "alice", "-o",
+			`jsonpath={.spec.template.metadata.annotations.games\.homelab\.io/gameVersion}`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(version).To(Equal("sleeper-v1"))
 	})
 
 	It("removes the world when a purged server is deleted", func() {

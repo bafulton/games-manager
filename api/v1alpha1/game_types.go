@@ -130,9 +130,9 @@ type GameStorage struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-// GameSpec defines how to run servers of one game.
+// GameTemplateSpec is the immutable deployment recipe for a game version.
 // +kubebuilder:validation:XValidation:rule="self.sizes.exists(s, s.name == self.defaultSize)",message="defaultSize must name one of sizes"
-type GameSpec struct {
+type GameTemplateSpec struct {
 	// Image of the game server, pinned to a tag or digest.
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image"`
@@ -203,14 +203,19 @@ type GameSpec struct {
 	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
+// GameSpec describes an administrator-managed catalog entry. Deployment recipes
+// live in GameVersions so publishing a release never changes existing servers.
+type GameSpec struct {
+	// +optional
+	Description string `json:"description,omitempty"`
+}
+
 // GameStatus defines the observed state of Game.
 type GameStatus struct{}
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster
-// +kubebuilder:printcolumn:name="Image",type=string,JSONPath=`.spec.image`
-// +kubebuilder:printcolumn:name="Connection",type=string,JSONPath=`.spec.connection.type`
 
 // Game describes how to run servers of one game.
 type Game struct {

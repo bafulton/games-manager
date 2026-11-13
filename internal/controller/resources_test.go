@@ -13,10 +13,10 @@ import (
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
 )
 
-func valheim() *gamesv1alpha1.Game {
-	return &gamesv1alpha1.Game{
+func valheim() *gameTemplate {
+	return &gameTemplate{
 		ObjectMeta: metav1.ObjectMeta{Name: "valheim"},
-		Spec: gamesv1alpha1.GameSpec{
+		Spec: gamesv1alpha1.GameTemplateSpec{
 			Image: "ghcr.io/example/valheim:1.0.0",
 			Env:   []corev1.EnvVar{{Name: "WORLD", Value: "Dedicated"}, {Name: "PUBLIC", Value: "false"}},
 			Ports: []gamesv1alpha1.GamePort{
@@ -44,7 +44,7 @@ func valheim() *gamesv1alpha1.Game {
 	}
 }
 
-func minecraft() *gamesv1alpha1.Game {
+func minecraft() *gameTemplate {
 	g := valheim()
 	g.Name = "minecraft"
 	g.Spec.Ports = []gamesv1alpha1.GamePort{{Name: "java", ContainerPort: 25565}}
@@ -59,7 +59,7 @@ func minecraft() *gamesv1alpha1.Game {
 func server(name, game string) *gamesv1alpha1.GameServer {
 	return &gamesv1alpha1.GameServer{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "games"},
-		Spec:       gamesv1alpha1.GameServerSpec{Game: game},
+		Spec:       gamesv1alpha1.GameServerSpec{Game: game, GameVersion: game + "-v1"},
 	}
 }
 
@@ -140,7 +140,7 @@ func TestRestartRollsThePod(t *testing.T) {
 	game, s := valheim(), server("bob", "valheim")
 	sts := &appsv1.StatefulSet{}
 	_ = mutateStatefulSet(sts, game, s)
-	if len(sts.Spec.Template.Annotations) != 0 {
+	if sts.Spec.Template.Annotations[restartedAtAnnotation] != "" {
 		t.Fatalf("no restart requested, but template has annotations %v", sts.Spec.Template.Annotations)
 	}
 	s.Spec.RestartedAt = &metav1.Time{Time: metav1.Now().Time}

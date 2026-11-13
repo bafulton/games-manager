@@ -5,6 +5,7 @@ metadata:
   namespace: default
 spec:
   game: minecraft
+  gameVersion: minecraft-v1
   owner: alice
   env:
   - name: MOTD

@@ -33,7 +33,7 @@ var _ = Describe("Examples", func() {
 				} else {
 					Expect(err).NotTo(HaveOccurred(), path)
 				}
-				if obj.GetKind() != "Game" {
+				if obj.GetKind() != "Game" && obj.GetKind() != "GameVersion" {
 					continue // GameServers need their namespace and secrets
 				}
 				// Renamed and dry-run, so an example can't collide with the
