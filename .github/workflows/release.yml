@@ -1,11 +1,22 @@
 name: Release
 
-# Pushing a tag like v0.1.0 publishes the image as
-# ghcr.io/bafulton/games-manager:0.1.0 and the chart as
-# oci://ghcr.io/bafulton/charts/games-manager, version 0.1.0.
+# Publishes version X.Y.Z as the image ghcr.io/bafulton/games-manager:X.Y.Z
+# and the chart oci://ghcr.io/bafulton/charts/games-manager, version X.Y.Z.
+#
+# Release Please calls this when its release PR merges. It has no tag
+# trigger: the release tag is created by the GitHub App, so a tag trigger
+# would publish every release twice.
 on:
-  push:
-    tags: ['v*.*.*']
+  workflow_call:
+    inputs:
+      version:
+        description: Version to publish, without the leading v.
+        required: true
+        type: string
+      ref:
+        description: Commit to build - the release commit.
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,12 +25,24 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
+      # The release commit itself, from Release Please.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Read version
         id: meta
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="$INPUT_VERSION"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$VERSION' is not a release version"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
@@ -53,10 +76,11 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/games-manager:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ github.repository_owner }}/games-manager:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/games-manager:sha-${{ inputs.ref }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ inputs.ref }}
           provenance: false
           cache-from: type=gha
           cache-to: type=gha,mode=max

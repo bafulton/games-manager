@@ -1,0 +1,67 @@
+name: Release Please
+
+# On every push to main: run the checks, then let Release Please update its
+# release PR (next version and changelog, from conventional commits).
+# Merging that PR tags vX.Y.Z, and the publish job builds and pushes the
+# image and chart. Nothing is released from a commit that failed a check.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml
+  tests:
+    uses: ./.github/workflows/test.yml
+  e2e:
+    uses: ./.github/workflows/test-e2e.yml
+  chart:
+    uses: ./.github/workflows/chart.yml
+
+  release-please:
+    needs: [lint, tests, e2e, chart]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Everything is written with the App's token below, not GITHUB_TOKEN.
+    permissions:
+      contents: read
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.version }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      # A PR opened with GITHUB_TOKEN doesn't trigger workflows, so its
+      # required checks would never report. The release PR is opened as
+      # this repo's GitHub App instead, and CI runs on it like any other PR.
+      - id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          # Release Please labels its PRs, and labels use the issues API.
+          permission-issues: write
+
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Called here rather than triggered by the tag, so it builds exactly the
+  # release commit and only ever runs after the checks above.
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.release-please.outputs.version }}
+      ref: ${{ needs.release-please.outputs.sha }}

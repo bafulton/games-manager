@@ -1,9 +1,9 @@
 name: Tests
 
+# On main, Release Please calls this and releases only once it passes.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:
 
 jobs:
   test:
