@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"maps"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -20,12 +21,6 @@ const (
 	// spec.restartedAt rolls the pod.
 	restartedAtAnnotation = "games.homelab.io/restartedAt"
 
-	// Longhorn copies a PVC's recurring-job labels to its volume when
-	// "source" is enabled, so the backup jobs for group "games" pick up every
-	// server's world without per-server configuration.
-	longhornSourceLabel  = "recurring-job.longhorn.io/source"
-	longhornGroupLabel   = "recurring-job-group.longhorn.io/games"
-	longhornEnabled      = "enabled"
 	mcRouterAnnotation   = "mc-router.itzg.me/externalServerName"
 	tailscaleHostnameKey = "tailscale.com/hostname"
 	tailscaleTagsKey     = "tailscale.com/tags"
@@ -96,26 +91,25 @@ func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string 
 }
 
 func desiredPVC(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) *corev1.PersistentVolumeClaim {
-	l := labels(game, server)
-	l[longhornSourceLabel] = longhornEnabled
-	l[longhornGroupLabel] = longhornEnabled
-
-	storageClass := game.Spec.Storage.StorageClassName
-	if storageClass == "" {
-		storageClass = "config"
+	// The selector labels go last, so a Game can't override them.
+	l := maps.Clone(game.Spec.Storage.Labels)
+	if l == nil {
+		l = map[string]string{}
 	}
+	maps.Copy(l, labels(game, server))
 
 	// No owner reference: deleting the GameServer must not delete its
 	// world. The finalizer deletes it only when the server is purged.
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      pvcName(server),
-			Namespace: server.Namespace,
-			Labels:    l,
+			Name:        pvcName(server),
+			Namespace:   server.Namespace,
+			Labels:      l,
+			Annotations: maps.Clone(game.Spec.Storage.Annotations),
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			StorageClassName: ptr.To(storageClass),
+			StorageClassName: game.Spec.Storage.StorageClassName,
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{corev1.ResourceStorage: game.Spec.Storage.Size},
 			},

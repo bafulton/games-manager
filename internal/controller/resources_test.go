@@ -184,16 +184,27 @@ func TestRestartRollsThePod(t *testing.T) {
 	}
 }
 
-func TestPVCIsNotOwnedAndJoinsBackups(t *testing.T) {
+func TestPVCIsRetainedAndUsesClusterDefaultStorage(t *testing.T) {
 	pvc := desiredPVC(valheim(), server("bob", "valheim"))
 	if len(pvc.OwnerReferences) != 0 {
 		t.Error("the world PVC must not be owned, or deleting the server would delete it")
 	}
-	if pvc.Labels[longhornGroupLabel] != longhornEnabled || pvc.Labels[longhornSourceLabel] != longhornEnabled {
-		t.Errorf("PVC labels %v should put it in the Longhorn games backup group", pvc.Labels)
+	if pvc.Spec.StorageClassName != nil {
+		t.Errorf("storage class = %v, want nil for the cluster default", pvc.Spec.StorageClassName)
 	}
-	if *pvc.Spec.StorageClassName != "config" {
-		t.Errorf("storage class = %q, want the config default", *pvc.Spec.StorageClassName)
+}
+
+func TestPVCStorageOverrides(t *testing.T) {
+	g := valheim()
+	g.Spec.Storage.StorageClassName = ptr.To("")
+	g.Spec.Storage.Labels = map[string]string{"recurring-job.longhorn.io/source": "enabled"}
+	g.Spec.Storage.Annotations = map[string]string{"example.com/backup": "daily"}
+	pvc := desiredPVC(g, server("bob", "valheim"))
+	if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != "" {
+		t.Fatal("explicit empty storage class must remain empty")
+	}
+	if pvc.Labels["recurring-job.longhorn.io/source"] != "enabled" || pvc.Annotations["example.com/backup"] != "daily" {
+		t.Fatal("storage provider metadata was not copied")
 	}
 }
 
