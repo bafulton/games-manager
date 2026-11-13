@@ -1,9 +1,47 @@
 apiVersion: games.homelab.io/v1alpha1
 kind: Game
 metadata:
-  labels:
-    app.kubernetes.io/name: games-manager
-    app.kubernetes.io/managed-by: kustomize
-  name: game-sample
+  name: minecraft
 spec:
-  # TODO(user): Add fields here
+  image: itzg/minecraft-server:2026.10.1
+  env:
+  - name: EULA
+    value: 'TRUE'
+  - name: TYPE
+    value: PAPER
+  - name: MEMORY
+    value: 2G
+  ports:
+  - name: java
+    containerPort: 25565
+  connection:
+    type: Hostname
+    hostname:
+      domain: mc.example.com
+  sizes:
+  - name: small
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2560Mi
+      limits:
+        memory: 3Gi
+  - name: large
+    resources:
+      requests:
+        cpu: '1'
+        memory: 4608Mi
+      limits:
+        memory: 5Gi
+  defaultSize: small
+  storage:
+    size: 10Gi
+    mountPath: /data
+  readinessProbe:
+    exec:
+      command:
+      - mc-health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 30
+  terminationGracePeriodSeconds: 120

@@ -1,19 +1,3 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package controller
 
 import (
@@ -21,64 +5,168 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
 )
 
 var _ = Describe("GameServer Controller", func() {
-	Context("When reconciling a resource", func() {
-		const resourceName = "test-resource"
+	ctx := context.Background()
 
-		ctx := context.Background()
+	var reconciler *GameServerReconciler
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: "default", // TODO(user):Modify as needed
-		}
-		gameserver := &gamesv1alpha1.GameServer{}
-
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind GameServer")
-			err := k8sClient.Get(ctx, typeNamespacedName, gameserver)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &gamesv1alpha1.GameServer{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: "default",
-					},
-					// TODO(user): Specify other spec details if needed.
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
-			}
-		})
-
-		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &gamesv1alpha1.GameServer{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance GameServer")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should successfully reconcile the resource", func() {
-			By("Reconciling the created resource")
-			controllerReconciler := &GameServerReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
-
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
+	// reconcileUntilSettled runs Reconcile a few times, as the manager would
+	// after each write: adding the finalizer and assigning a slot each end
+	// one pass early.
+	reconcileUntilSettled := func(name string) {
+		for range 3 {
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name, Namespace: "default"},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
-		})
+		}
+	}
+
+	get := func(obj client.Object, name string) {
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, obj)).To(Succeed())
+	}
+
+	BeforeEach(func() {
+		reconciler = &GameServerReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), APIReader: k8sClient}
+		for _, g := range []*gamesv1alpha1.Game{valheim(), minecraft()} {
+			err := k8sClient.Create(ctx, g)
+			if !apierrors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+		}
+	})
+
+	AfterEach(func() {
+		servers := &gamesv1alpha1.GameServerList{}
+		Expect(k8sClient.List(ctx, servers)).To(Succeed())
+		for i := range servers.Items {
+			s := &servers.Items[i]
+			s.Finalizers = nil
+			Expect(k8sClient.Update(ctx, s)).To(Succeed())
+			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, s))).To(Succeed())
+		}
+		Expect(k8sClient.DeleteAllOf(ctx, &corev1.PersistentVolumeClaim{}, client.InNamespace("default"))).To(Succeed())
+		Expect(k8sClient.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace("default"))).To(Succeed())
+	})
+
+	It("builds a world PVC, StatefulSet and Service for a server", func() {
+		s := server("alice", "minecraft")
+		s.Namespace = "default"
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		reconcileUntilSettled("alice")
+
+		pvc := &corev1.PersistentVolumeClaim{}
+		get(pvc, "alice-world")
+		Expect(pvc.OwnerReferences).To(BeEmpty(), "the world must outlive the GameServer")
+
+		sts := &appsv1.StatefulSet{}
+		get(sts, "alice")
+		Expect(*sts.Spec.Replicas).To(Equal(int32(1)))
+		Expect(sts.OwnerReferences).To(HaveLen(1))
+
+		svc := &corev1.Service{}
+		get(svc, "alice")
+		Expect(svc.Annotations).To(HaveKeyWithValue(mcRouterAnnotation, "alice.mc.example.com"))
+
+		get(s, "alice")
+		Expect(s.Finalizers).To(ContainElement(finalizer))
+		Expect(s.Status.Address).To(Equal("alice.mc.example.com"))
+		Expect(s.Status.Phase).To(Equal(gamesv1alpha1.PhaseStarting))
+	})
+
+	It("stops a server by scaling it to zero", func() {
+		s := server("alice", "minecraft")
+		s.Namespace = "default"
+		s.Spec.Running = ptr.To(false)
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		reconcileUntilSettled("alice")
+
+		sts := &appsv1.StatefulSet{}
+		get(sts, "alice")
+		Expect(*sts.Spec.Replicas).To(Equal(int32(0)))
+		get(s, "alice")
+		Expect(s.Status.Phase).To(Equal(gamesv1alpha1.PhaseStopped))
+	})
+
+	It("gives each port pool server its own slot, and keeps it", func() {
+		for _, name := range []string{"bob", "carol"} {
+			s := server(name, "valheim")
+			s.Namespace = "default"
+			Expect(k8sClient.Create(ctx, s)).To(Succeed())
+			reconcileUntilSettled(name)
+		}
+
+		bob, carol := &gamesv1alpha1.GameServer{}, &gamesv1alpha1.GameServer{}
+		get(bob, "bob")
+		get(carol, "carol")
+		Expect(*bob.Spec.Slot).To(Equal(int32(0)))
+		Expect(*carol.Spec.Slot).To(Equal(int32(1)))
+		Expect(carol.Status.Address).To(Equal("valheim.example.com:2458"))
+
+		svc := &corev1.Service{}
+		get(svc, "carol")
+		Expect(svc.Annotations).To(HaveKeyWithValue(tailscaleHostnameKey, "valheim-slot-1"))
+
+		By("refusing to move an assigned slot")
+		carol.Spec.Slot = ptr.To[int32](3)
+		Expect(k8sClient.Update(ctx, carol)).NotTo(Succeed())
+	})
+
+	It("reports an error when every slot is taken", func() {
+		game := valheim()
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "valheim"}, game)).To(Succeed())
+		for i := range game.Spec.Connection.PortPool.Slots + 1 {
+			name := []string{"s0", "s1", "s2", "s3", "s4"}[i]
+			s := server(name, "valheim")
+			s.Namespace = "default"
+			Expect(k8sClient.Create(ctx, s)).To(Succeed())
+			reconcileUntilSettled(name)
+		}
+		last := &gamesv1alpha1.GameServer{}
+		get(last, "s4")
+		Expect(last.Spec.Slot).To(BeNil())
+		Expect(last.Status.Phase).To(Equal(gamesv1alpha1.PhaseError))
+	})
+
+	It("keeps the world on delete, and removes it only on purge", func() {
+		for _, name := range []string{"kept", "purged"} {
+			s := server(name, "minecraft")
+			s.Namespace = "default"
+			Expect(k8sClient.Create(ctx, s)).To(Succeed())
+			reconcileUntilSettled(name)
+		}
+
+		purged := &gamesv1alpha1.GameServer{}
+		get(purged, "purged")
+		purged.Annotations = map[string]string{gamesv1alpha1.PurgeAnnotation: "true"}
+		Expect(k8sClient.Update(ctx, purged)).To(Succeed())
+
+		for _, name := range []string{"kept", "purged"} {
+			s := &gamesv1alpha1.GameServer{}
+			get(s, name)
+			Expect(k8sClient.Delete(ctx, s)).To(Succeed())
+			_, err := reconciler.Reconcile(ctx, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: name, Namespace: "default"},
+			})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		get(&corev1.PersistentVolumeClaim{}, "kept-world")
+		pvc := &corev1.PersistentVolumeClaim{}
+		err := k8sClient.Get(ctx, types.NamespacedName{Name: "purged-world", Namespace: "default"}, pvc)
+		// envtest runs no PVC protection controller, so a deleted PVC is gone
+		// or, at most, marked for deletion.
+		Expect(apierrors.IsNotFound(err) || !pvc.DeletionTimestamp.IsZero()).To(BeTrue())
 	})
 })

@@ -1,53 +1,107 @@
-/*
-Copyright 2026.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// GameServerPhase is a coarse summary of a server's state, for display.
+type GameServerPhase string
+
+const (
+	PhasePending  GameServerPhase = "Pending"
+	PhaseStarting GameServerPhase = "Starting"
+	PhaseRunning  GameServerPhase = "Running"
+	PhaseStopped  GameServerPhase = "Stopped"
+	PhaseError    GameServerPhase = "Error"
+)
+
+const (
+	// PurgeAnnotation, set to "true" before deleting a GameServer, deletes
+	// its PVC too. Without it the world is kept.
+	PurgeAnnotation = "games.homelab.io/purge"
+
+	// ConditionReady is true when the server's pod is ready for players.
+	ConditionReady = "Ready"
+)
 
 // GameServerSpec defines the desired state of GameServer.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.slot) || (has(self.slot) && self.slot == oldSelf.slot)",message="slot cannot change once assigned: it is the server's public address"
 type GameServerSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Game is the name of the Game this server runs.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="game is immutable"
+	Game string `json:"game"`
 
-	// Foo is an example field of GameServer. Edit gameserver_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// Owner is who the server belongs to, as their identity-provider
+	// username. The UI lets only the owner change it.
+	// +optional
+	Owner string `json:"owner,omitempty"`
+
+	// Running is whether the server should be up. false stops its pod and
+	// frees its memory; the world stays on its volume.
+	// +kubebuilder:default=true
+	// +optional
+	Running *bool `json:"running,omitempty"`
+
+	// Size names one of the Game's sizes. Defaults to the Game's defaultSize.
+	// +optional
+	Size string `json:"size,omitempty"`
+
+	// Env for this server, after the Game's env, so it can override it.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// RestartedAt restarts the server when it changes.
+	// +optional
+	RestartedAt *metav1.Time `json:"restartedAt,omitempty"`
+
+	// Slot in the Game's port pool. Assigned by the controller for a
+	// PortPool game, then fixed, so a restore keeps the server's address.
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	Slot *int32 `json:"slot,omitempty"`
 }
 
 // GameServerStatus defines the observed state of GameServer.
 type GameServerStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// +optional
+	Phase GameServerPhase `json:"phase,omitempty"`
+
+	// Address players connect to.
+	// +optional
+	Address string `json:"address,omitempty"`
+
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Game",type=string,JSONPath=`.spec.game`
+// +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.owner`
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.status.address`
 
-// GameServer is the Schema for the gameservers API.
+// GameServer is one server of one Game.
 type GameServer struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec   GameServerSpec   `json:"spec,omitempty"`
 	Status GameServerStatus `json:"status,omitempty"`
+}
+
+// IsRunning reports whether the server should be up. Running defaults to
+// true when unset.
+func (s *GameServer) IsRunning() bool {
+	return s.Spec.Running == nil || *s.Spec.Running
 }
 
 // +kubebuilder:object:root=true

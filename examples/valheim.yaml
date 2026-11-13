@@ -1,0 +1,73 @@
+# Valheim, one slot per server. Slot n's public ports are
+# 2456 + 2n (game) and 2457 + 2n (query), forwarded by the edge to
+# valheim-slot-<n>, the server's Tailscale Service, on the game's own
+# 2456-2457. Players join valheim.example.com:<game port>.
+apiVersion: games.homelab.io/v1alpha1
+kind: Game
+metadata:
+  name: valheim
+spec:
+  image: ghcr.io/community-valheim-tools/valheim-server:1.4.1
+  # amd64 only.
+  arch: amd64
+  env:
+    - name: SERVER_PORT
+      value: "2456"
+    - name: SERVER_PUBLIC
+      value: "false"
+  ports:
+    - name: game
+      containerPort: 2456
+      protocol: UDP
+    - name: query
+      containerPort: 2457
+      protocol: UDP
+  connection:
+    type: PortPool
+    portPool:
+      slots: 4
+      publicHost: valheim.example.com
+      basePort: 2456
+      stride: 2
+  sizes:
+    - name: standard
+      resources:
+        requests: {cpu: "1", memory: 3Gi}
+        limits: {memory: 5Gi}
+  defaultSize: standard
+  # The world, and the image's own timestamped world backups, live here.
+  storage:
+    size: 10Gi
+    mountPath: /config
+  # The image starts as root and drops to PUID/PGID itself, and supervisord
+  # needs to change user and file ownership to do that.
+  podSecurityContext:
+    fsGroup: 1000
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+      add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID, KILL]
+  # supervisord stops valheim-server on SIGTERM, which saves the world.
+  terminationGracePeriodSeconds: 120
+---
+apiVersion: games.homelab.io/v1alpha1
+kind: GameServer
+metadata:
+  name: bob
+  namespace: games
+spec:
+  game: valheim
+  owner: bob
+  env:
+    - name: SERVER_NAME
+      value: Bob's server
+    - name: WORLD_NAME
+      value: Midgard
+    # Valheim requires a password of at least 5 characters for a
+    # non-public server.
+    - name: SERVER_PASS
+      valueFrom:
+        secretKeyRef:
+          name: bob-valheim
+          key: password

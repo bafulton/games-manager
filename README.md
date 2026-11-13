@@ -12,9 +12,22 @@ servers. The platform stays in git; the servers themselves don't.
 - **`GameServer`** (namespaced, created at runtime): one server of one game.
   Its owner, whether it's running, and its size preset.
 
-The controller turns each `GameServer` into a StatefulSet, a PVC and a
-Service. The PVC is not owned by the `GameServer`, so deleting a server keeps
-its world until it's explicitly purged.
+The controller turns each `GameServer` into:
+
+- a **StatefulSet** with 0 or 1 replicas, from `spec.running`. Changing
+  `spec.restartedAt` restarts it.
+- a **PVC**, `<server>-world`, labeled into the Longhorn `games` recurring-job
+  group so backup jobs for that group cover every server. It has no owner:
+  deleting a server keeps its world. Annotate the server with
+  `games.homelab.io/purge: "true"` before deleting it to remove the world too.
+- a **Service**. A `Hostname` game gets a ClusterIP that mc-router discovers
+  by annotation. A `PortPool` game gets a Tailscale LoadBalancer named
+  `<game>-slot-<n>`, which the edge forwarder routes the slot's public ports
+  to. The slot is assigned once and kept in `spec.slot`, so a restored server
+  keeps its address.
+
+`examples/` has a `Game` and a `GameServer` for Minecraft (Hostname) and
+Valheim (PortPool). The tests check that the CRDs accept them.
 
 ## Status
 
