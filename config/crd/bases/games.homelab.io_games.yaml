@@ -2188,7 +2188,7 @@ spec:
             - message: defaultSize must name one of sizes
               rule: self.sizes.exists(s, s.name == self.defaultSize)
             - message: set the architecture with arch, not nodeSelector
-              rule: '!has(self.arch) || self.arch == '''' || !has(self.nodeSelector)
+              rule: '!has(self.arch) || size(self.arch) == 0 || !has(self.nodeSelector)
                 || !(''kubernetes.io/arch'' in self.nodeSelector)'
           status:
             description: GameStatus defines the observed state of Game.

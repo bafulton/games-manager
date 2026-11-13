@@ -123,7 +123,7 @@ type GameStorage struct {
 
 // GameSpec defines how to run servers of one game.
 // +kubebuilder:validation:XValidation:rule="self.sizes.exists(s, s.name == self.defaultSize)",message="defaultSize must name one of sizes"
-// +kubebuilder:validation:XValidation:rule="!has(self.arch) || self.arch == '' || !has(self.nodeSelector) || !('kubernetes.io/arch' in self.nodeSelector)",message="set the architecture with arch, not nodeSelector"
+// +kubebuilder:validation:XValidation:rule="!has(self.arch) || size(self.arch) == 0 || !has(self.nodeSelector) || !('kubernetes.io/arch' in self.nodeSelector)",message="set the architecture with arch, not nodeSelector"
 type GameSpec struct {
 	// Image of the game server, pinned to a tag or digest.
 	// +kubebuilder:validation:MinLength=1
