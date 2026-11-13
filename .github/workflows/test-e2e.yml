@@ -35,14 +35,12 @@ jobs:
         with:
           version: v4.3.1
 
-      # Compiled on the runner, where setup-go restores Go's build cache, and
-      # copied into a minimal image. A Docker layer cache doesn't help: any
-      # source change rebuilds the go build layer from scratch.
+      # Compiled on the runner, where setup-go restores Go's build cache; the
+      # image build only copies the binary in.
       - name: Build the controller image
         run: |
-          mkdir -p bin/e2e
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/e2e/manager ./cmd
-          docker build -f test/e2e/Dockerfile -t "$E2E_IMAGE" bin/e2e
+          make build-linux LINUX_ARCHES=amd64
+          docker build -t "$E2E_IMAGE" .
 
       # Calls the suite directly: Lint and Tests already regenerate, format
       # and vet, which make test-e2e would repeat.

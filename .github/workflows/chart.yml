@@ -36,8 +36,11 @@ jobs:
           helm template games-manager chart --include-crds > /dev/null
 
       # Builds both architectures and pushes nothing, so a broken image
-      # fails review instead of a release.
-      - uses: docker/setup-qemu-action@v4
+      # fails review instead of a release. The managers are cross-compiled
+      # here, with setup-go's build cache, so the image build only copies
+      # them in.
+      - name: Cross-compile the manager
+        run: make build-linux
       - uses: docker/setup-buildx-action@v4
       - name: Build image
         uses: docker/build-push-action@v7
@@ -46,5 +49,3 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
