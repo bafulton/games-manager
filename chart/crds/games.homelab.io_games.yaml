@@ -109,6 +109,7 @@ spec:
                           Stride is how many public ports each slot takes, for games that use
                           consecutive ports (Valheim uses 2: game and query).
                         format: int32
+                        maximum: 65535
                         minimum: 1
                         type: integer
                       tailscaleTags:
@@ -122,6 +123,9 @@ spec:
                     - publicHost
                     - slots
                     type: object
+                    x-kubernetes-validations:
+                    - message: port pool exceeds port 65535
+                      rule: self.basePort + self.slots * self.stride - 1 <= 65535
                   type:
                     description: ConnectionType is how players reach a server of a
                       Game.

@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -99,13 +100,18 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, err
 		}
 		if slot == nil {
-			return ctrl.Result{}, r.setError(ctx, server, "NoSlotAvailable",
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, r.setError(ctx, server, "NoSlotAvailable",
 				fmt.Sprintf("all %d slots of Game %q are taken", game.Spec.Connection.PortPool.Slots, game.Name))
 		}
 		server.Spec.Slot = slot
 		log.Info("assigned slot", "slot", *slot)
 		// The update triggers the next reconcile, which builds the resources.
 		return ctrl.Result{}, r.Update(ctx, server)
+	}
+	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionPortPool {
+		if err := r.validateSlot(ctx, game, server); err != nil {
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, r.setError(ctx, server, "SlotConflict", err.Error())
+		}
 	}
 
 	if err := r.ensurePVC(ctx, game, server); err != nil {
@@ -131,6 +137,25 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	return ctrl.Result{}, r.updateStatus(ctx, game, server, sts)
+}
+
+// validateSlot checks explicit/restored reservations too. A conflicting slot
+// is never silently changed, because that would change the public address.
+func (r *GameServerReconciler) validateSlot(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) error {
+	slot := *server.Spec.Slot
+	if slot < 0 || slot >= game.Spec.Connection.PortPool.Slots {
+		return fmt.Errorf("slot %d is outside Game %q's pool", slot, game.Name)
+	}
+	servers := &gamesv1alpha1.GameServerList{}
+	if err := r.APIReader.List(ctx, servers); err != nil {
+		return err
+	}
+	for _, other := range servers.Items {
+		if other.UID != server.UID && other.Spec.Game == game.Name && other.Spec.Slot != nil && *other.Spec.Slot == slot {
+			return fmt.Errorf("slot %d is also reserved by %s/%s", slot, other.Namespace, other.Name)
+		}
+	}
+	return nil
 }
 
 // ensurePVC creates the server's world volume if it doesn't exist. An

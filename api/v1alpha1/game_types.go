@@ -50,6 +50,7 @@ type HostnameConnection struct {
 }
 
 // PortPoolConnection configures ConnectionPortPool.
+// +kubebuilder:validation:XValidation:rule="self.basePort + self.slots * self.stride - 1 <= 65535",message="port pool exceeds port 65535"
 type PortPoolConnection struct {
 	// Slots is how many servers of this Game can exist at once. The edge
 	// forwarder must have a route for every slot.
@@ -71,6 +72,7 @@ type PortPoolConnection struct {
 	// Stride is how many public ports each slot takes, for games that use
 	// consecutive ports (Valheim uses 2: game and query).
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
 	// +kubebuilder:default=1
 	// +optional
 	Stride int32 `json:"stride,omitempty"`
