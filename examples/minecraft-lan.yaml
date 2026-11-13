@@ -1,0 +1,49 @@
+# Minecraft Java on the local network, each server on its own load balancer
+# address: players join 192.0.2.10:25565, or whatever address the cluster's
+# load balancer (eg MetalLB) gives the server. No proxy is needed, so every
+# server can use the default port.
+apiVersion: games-manager.io/v1alpha1
+kind: Game
+metadata:
+  name: minecraft-lan
+spec:
+  image: itzg/minecraft-server:2026.10.1
+  env:
+    - name: EULA
+      value: "TRUE"
+    - name: MEMORY
+      value: 2G
+  ports:
+    - name: java
+      containerPort: 25565
+  connection:
+    type: Direct
+    # Optional: report a DNS name instead of the load balancer's IP.
+    # direct:
+    #   host: $(SERVER).games.example.lan
+  service:
+    type: LoadBalancer
+  sizes:
+    - name: small
+      resources:
+        requests: {cpu: 500m, memory: 2560Mi}
+        limits: {memory: 3Gi}
+  defaultSize: small
+  storage:
+    size: 10Gi
+    mountPath: /data
+  readinessProbe:
+    exec:
+      command: [mc-health]
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 30
+---
+apiVersion: games-manager.io/v1alpha1
+kind: GameServer
+metadata:
+  name: bob
+  namespace: games
+spec:
+  game: minecraft-lan
+  owner: bob

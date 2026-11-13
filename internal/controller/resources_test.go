@@ -95,6 +95,45 @@ func TestAddress(t *testing.T) {
 	}
 }
 
+func TestServiceAddress(t *testing.T) {
+	game, s := minecraft(), server("alice", "minecraft")
+	game.Spec.Connection = gamesv1alpha1.Connection{Type: gamesv1alpha1.ConnectionDirect}
+	service := func(typ corev1.ServiceType, ingress ...corev1.LoadBalancerIngress) *corev1.Service {
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "alice", Namespace: "games"},
+			Spec: corev1.ServiceSpec{Type: typ, Ports: []corev1.ServicePort{
+				{Name: "java", Port: 25565, NodePort: 31565},
+				{Name: "query", Port: 25575, NodePort: 31575},
+			}},
+		}
+		svc.Status.LoadBalancer.Ingress = ingress
+		return svc
+	}
+
+	for _, tc := range []struct {
+		name, host string
+		svc        *corev1.Service
+		want       string
+	}{
+		{"pending load balancer", "", service(corev1.ServiceTypeLoadBalancer), ""},
+		{"load balancer IP", "", service(corev1.ServiceTypeLoadBalancer,
+			corev1.LoadBalancerIngress{IP: "192.0.2.10"}), "192.0.2.10:25565"},
+		{"load balancer IPv6", "", service(corev1.ServiceTypeLoadBalancer,
+			corev1.LoadBalancerIngress{IP: "2001:db8::10"}), "[2001:db8::10]:25565"},
+		{"load balancer hostname", "", service(corev1.ServiceTypeLoadBalancer,
+			corev1.LoadBalancerIngress{Hostname: "lb.example.com"}), "lb.example.com:25565"},
+		{"host per server", "$(SERVER).games.example.com", service(corev1.ServiceTypeLoadBalancer),
+			"alice.games.example.com:25565"},
+		{"node port", "node.example.com", service(corev1.ServiceTypeNodePort), "node.example.com:31565"},
+		{"cluster IP", "", service(corev1.ServiceTypeClusterIP), "alice.games.svc:25565"},
+	} {
+		game.Spec.Connection.Direct = &gamesv1alpha1.DirectConnection{Host: tc.host}
+		if got := serviceAddress(game, s, tc.svc); got != tc.want {
+			t.Errorf("%s: address = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestStatefulSet(t *testing.T) {
 	game := valheim()
 	s := server("bob", "valheim")

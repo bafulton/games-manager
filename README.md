@@ -58,9 +58,17 @@ How players connect is up to the Game's `connection`:
   `<publicHost>:<basePort + n * stride>`. Something outside games-manager
   forwards each slot's ports to its server's Service. The slot is assigned
   once and kept in `spec.slot`, so a restored server keeps its address.
+- **`Direct`**: players connect straight to the server's own Service, with
+  no proxy or forwarder. With a `LoadBalancer` Service, the address is the
+  load balancer's (or `connection.direct.host`, which can name each server,
+  eg `$(SERVER).games.example.lan`). With a `NodePort` Service it's
+  `connection.direct.host` and the node port; with a `ClusterIP` Service,
+  the Service's cluster DNS name. The address uses the Game's first port,
+  and `$(ADDRESS)` is empty for these Games, since the address comes from
+  the Service.
 
-`examples/` has a `Game` and a `GameServer` for Minecraft (Hostname) and
-Valheim (PortPool). The tests check that the CRDs accept them.
+`examples/` has a `Game` and a `GameServer` for Minecraft by hostname
+(Hostname), Minecraft on the local network (Direct) and Valheim (PortPool). The tests check that the CRDs accept them.
 
 ## Status
 

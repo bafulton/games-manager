@@ -9,6 +9,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
@@ -32,6 +33,18 @@ var _ = Describe("Game validation", func() {
 		game.Spec.Service.LoadBalancerClass = ptr.To("lb.example.com/class")
 		err := k8sClient.Create(context.Background(), game, client.DryRunAll)
 		Expect(err).To(MatchError(ContainSubstring("loadBalancerClass needs type LoadBalancer")))
+	})
+
+	It("rejects a Direct connection over a NodePort Service without a host", func() {
+		game := minecraft()
+		game.Name = "direct-without-host"
+		game.Spec.Connection = gamesv1alpha1.Connection{Type: gamesv1alpha1.ConnectionDirect}
+		game.Spec.Service = gamesv1alpha1.GameService{Type: corev1.ServiceTypeNodePort}
+		err := k8sClient.Create(context.Background(), game, client.DryRunAll)
+		Expect(err).To(MatchError(ContainSubstring("needs connection.direct.host")))
+
+		game.Spec.Connection.Direct = &gamesv1alpha1.DirectConnection{Host: "node.example.com"}
+		Expect(k8sClient.Create(context.Background(), game, client.DryRunAll)).To(Succeed())
 	})
 
 	DescribeTable("checks defaultVersion against versions", func(versions []gamesv1alpha1.GameVersion, defaultVersion string, valid bool) {
