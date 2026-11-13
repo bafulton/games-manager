@@ -7,6 +7,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
@@ -221,5 +222,18 @@ func TestServiceByConnection(t *testing.T) {
 	}
 	if len(vh.Spec.Ports) != 2 || vh.Spec.Ports[0].Protocol != corev1.ProtocolUDP {
 		t.Errorf("ports = %+v, want Valheim's two UDP ports", vh.Spec.Ports)
+	}
+}
+
+func TestServicePortTracksContainerPortChanges(t *testing.T) {
+	g := minecraft()
+	svc := &corev1.Service{Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{
+		Name: "java", Port: 25565, TargetPort: intstr.FromInt32(25565), NodePort: 31000,
+	}}}}
+	g.Spec.Ports[0].ContainerPort = 25566
+	mutateService(svc, g, server("alice", "minecraft"))
+	p := svc.Spec.Ports[0]
+	if p.Port != 25566 || p.TargetPort != intstr.FromString("java") || p.NodePort != 31000 {
+		t.Fatalf("updated port = %+v; expected the new port, named target and retained NodePort", p)
 	}
 }
