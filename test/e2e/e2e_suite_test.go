@@ -13,9 +13,9 @@ import (
 )
 
 var (
-	// projectImage is the controller image under test. CI builds it with a
-	// layer cache before the suite runs and sets E2E_SKIP_IMAGE_BUILD, so the
-	// suite only loads it into Kind.
+	// projectImage is the controller image under test. CI builds it before
+	// the suite runs and sets E2E_SKIP_IMAGE_BUILD, so the suite only loads it
+	// into Kind.
 	projectImage   = envOr("E2E_IMAGE", "example.com/games-manager:e2e")
 	skipImageBuild = os.Getenv("E2E_SKIP_IMAGE_BUILD") == "true"
 )
