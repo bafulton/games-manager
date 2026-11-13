@@ -42,20 +42,29 @@ The controller turns each `GameServer` into:
   `storage.annotations`, eg to join a backup job. It has no owner: deleting
   a server keeps its world. Annotate the server with
   `games.homelab.io/purge: "true"` before deleting it to remove the world too.
-- a **Service**. A `Hostname` game gets a ClusterIP that mc-router discovers
-  by annotation. A `PortPool` game gets a Tailscale LoadBalancer named
-  `<game>-slot-<n>`, which the edge forwarder routes the slot's public ports
-  to. The slot is assigned once and kept in `spec.slot`, so a restored server
-  keeps its address.
+- a **Service**, shaped by the Game's `service`: its type, load balancer
+  class, labels and annotations. Annotation and label values can use
+  `$(SERVER)`, `$(NAMESPACE)`, `$(GAME)`, `$(SLOT)` and `$(ADDRESS)`, so the
+  Service can carry whatever the cluster's proxy or load balancer needs to
+  find it.
+
+How players connect is up to the Game's `connection`:
+
+- **`Hostname`**: each server is `<server>.<domain>`, and a proxy that reads
+  the hostname from the game's protocol routes it, so every server shares
+  one port. For Minecraft Java, mc-router does this; `examples/minecraft.yaml`
+  sets the annotation it looks for.
+- **`PortPool`**: each server gets a numbered slot, and slot `n` is
+  `<publicHost>:<basePort + n * stride>`. Something outside games-manager
+  forwards each slot's ports to its server's Service. The slot is assigned
+  once and kept in `spec.slot`, so a restored server keeps its address.
 
 `examples/` has a `Game` and a `GameServer` for Minecraft (Hostname) and
 Valheim (PortPool). The tests check that the CRDs accept them.
 
 ## Status
 
-Early: `v1alpha1`, and the API will change. Design and roadmap are tracked in
-the homelab project (CAT-84). It's built for one cluster first, so `PortPool`
-games assume the Tailscale operator for exposing servers.
+Early: `v1alpha1`, and the API will change.
 
 ## Development
 

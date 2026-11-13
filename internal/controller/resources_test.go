@@ -13,6 +13,13 @@ import (
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
 )
 
+// The test Games configure their Services as a hostname proxy and a load
+// balancer would need.
+const (
+	hostnameAnnotation = "proxy.example.com/hostname"
+	slotAnnotation     = "lb.example.com/name"
+)
+
 func valheim() *gamesv1alpha1.Game {
 	return &gamesv1alpha1.Game{
 		ObjectMeta: metav1.ObjectMeta{Name: "valheim"},
@@ -37,6 +44,11 @@ func valheim() *gamesv1alpha1.Game {
 					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("6Gi")},
 				}},
 			},
+			Service: gamesv1alpha1.GameService{
+				Type:              corev1.ServiceTypeLoadBalancer,
+				LoadBalancerClass: ptr.To("lb.example.com/class"),
+				Annotations:       map[string]string{slotAnnotation: "$(GAME)-slot-$(SLOT)"},
+			},
 			DefaultSize: "small",
 			Storage:     gamesv1alpha1.GameStorage{Size: resource.MustParse("10Gi"), MountPath: "/config"},
 			Arch:        "amd64",
@@ -51,6 +63,9 @@ func minecraft() *gamesv1alpha1.Game {
 	g.Spec.Connection = gamesv1alpha1.Connection{
 		Type:     gamesv1alpha1.ConnectionHostname,
 		Hostname: &gamesv1alpha1.HostnameConnection{Domain: "mc.example.com"},
+	}
+	g.Spec.Service = gamesv1alpha1.GameService{
+		Annotations: map[string]string{hostnameAnnotation: "$(ADDRESS)"},
 	}
 	g.Spec.Arch = ""
 	return g
@@ -256,31 +271,51 @@ func TestPVCStorageOverrides(t *testing.T) {
 	}
 }
 
-func TestServiceByConnection(t *testing.T) {
+func TestService(t *testing.T) {
 	mc := &corev1.Service{}
 	mutateService(mc, minecraft(), server("alice", "minecraft"))
 	if mc.Spec.Type != corev1.ServiceTypeClusterIP {
-		t.Errorf("hostname game service type = %s, want ClusterIP", mc.Spec.Type)
+		t.Errorf("default service type = %s, want ClusterIP", mc.Spec.Type)
 	}
-	if got := mc.Annotations[mcRouterAnnotation]; got != "alice.mc.example.com" {
-		t.Errorf("mc-router annotation = %q", got)
+	if got := mc.Annotations[hostnameAnnotation]; got != "alice.mc.example.com" {
+		t.Errorf("$(ADDRESS) annotation = %q, want the server's hostname", got)
 	}
 
 	s := server("bob", "valheim")
 	s.Spec.Slot = ptr.To[int32](2)
 	vh := &corev1.Service{}
 	mutateService(vh, valheim(), s)
-	if vh.Spec.Type != corev1.ServiceTypeLoadBalancer || *vh.Spec.LoadBalancerClass != "tailscale" {
-		t.Errorf("port pool service = %s/%v, want a tailscale LoadBalancer", vh.Spec.Type, vh.Spec.LoadBalancerClass)
+	if vh.Spec.Type != corev1.ServiceTypeLoadBalancer || *vh.Spec.LoadBalancerClass != "lb.example.com/class" {
+		t.Errorf("service = %s/%v, want the Game's LoadBalancer class", vh.Spec.Type, vh.Spec.LoadBalancerClass)
 	}
-	if got := vh.Annotations[tailscaleHostnameKey]; got != "valheim-slot-2" {
-		t.Errorf("tailnet hostname = %q, want valheim-slot-2", got)
-	}
-	if got := vh.Annotations[tailscaleTagsKey]; got != "tag:k8s-games" {
-		t.Errorf("tailscale tags = %q, want the tag:k8s-games default", got)
+	if got := vh.Annotations[slotAnnotation]; got != "valheim-slot-2" {
+		t.Errorf("$(GAME)-slot-$(SLOT) annotation = %q, want valheim-slot-2", got)
 	}
 	if len(vh.Spec.Ports) != 2 || vh.Spec.Ports[0].Protocol != corev1.ProtocolUDP {
 		t.Errorf("ports = %+v, want Valheim's two UDP ports", vh.Spec.Ports)
+	}
+}
+
+func TestServiceAnnotationsTrackTheGame(t *testing.T) {
+	game, s := minecraft(), server("alice", "minecraft")
+	svc := &corev1.Service{}
+	mutateService(svc, game, s)
+	// Another controller annotates the Service too.
+	svc.Annotations["other.example.com/status"] = "ok"
+
+	game.Spec.Service.Annotations = map[string]string{"proxy.example.com/port": "25565"}
+	mutateService(svc, game, s)
+	if _, ok := svc.Annotations[hostnameAnnotation]; ok {
+		t.Error("an annotation the Game no longer sets should be removed")
+	}
+	if svc.Annotations["proxy.example.com/port"] != "25565" || svc.Annotations["other.example.com/status"] != "ok" {
+		t.Errorf("annotations = %v, want the Game's new one and the other controller's kept", svc.Annotations)
+	}
+
+	game.Spec.Service.Annotations = nil
+	mutateService(svc, game, s)
+	if len(svc.Annotations) != 1 {
+		t.Errorf("annotations = %v, want only the other controller's", svc.Annotations)
 	}
 }
 
@@ -289,6 +324,7 @@ func TestServicePortTracksContainerPortChanges(t *testing.T) {
 	svc := &corev1.Service{Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{
 		Name: "java", Port: 25565, TargetPort: intstr.FromInt32(25565), NodePort: 31000,
 	}}}}
+	g.Spec.Service.Type = corev1.ServiceTypeNodePort
 	g.Spec.Ports[0].ContainerPort = 25566
 	mutateService(svc, g, server("alice", "minecraft"))
 	p := svc.Spec.Ports[0]

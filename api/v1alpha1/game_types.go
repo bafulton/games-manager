@@ -12,13 +12,16 @@ type ConnectionType string
 
 const (
 	// ConnectionHostname gives each server its own hostname under a shared
-	// domain, routed by a proxy that reads the hostname from the game's
-	// protocol (mc-router for Minecraft Java). All servers share one port.
+	// domain. A proxy that reads the hostname from the game's protocol
+	// routes it to the server, so all servers share one port. Configure the
+	// proxy through the Game's service annotations, with $(ADDRESS).
 	ConnectionHostname ConnectionType = "Hostname"
 
-	// ConnectionPortPool gives each server a numbered slot. The slot picks
-	// the server's public port and the name of its Tailscale Service, which
-	// the edge forwarder has a fixed route to.
+	// ConnectionPortPool gives each server a numbered slot, which picks its
+	// public port on a shared host. Something outside games-manager, such
+	// as a load balancer or port forwarder, routes each slot's ports to the
+	// server's Service; $(SLOT) in the Game's service annotations can name
+	// it for that.
 	ConnectionPortPool ConnectionType = "PortPool"
 )
 
@@ -54,8 +57,8 @@ type HostnameConnection struct {
 // PortPoolConnection configures ConnectionPortPool.
 // +kubebuilder:validation:XValidation:rule="self.basePort + self.slots * self.stride - 1 <= 65535",message="port pool exceeds port 65535"
 type PortPoolConnection struct {
-	// Slots is how many servers of this Game can exist at once. The edge
-	// forwarder must have a route for every slot.
+	// Slots is how many servers of this Game can exist at once. Whatever
+	// forwards the public ports needs a route for every slot.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=100
 	Slots int32 `json:"slots"`
@@ -66,7 +69,6 @@ type PortPoolConnection struct {
 	PublicHost string `json:"publicHost"`
 
 	// BasePort is slot 0's public port. Slot n's is BasePort + n*Stride.
-	// The edge forwards each slot's public ports to the game's own ports.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=65535
 	BasePort int32 `json:"basePort"`
@@ -78,12 +80,6 @@ type PortPoolConnection struct {
 	// +kubebuilder:default=1
 	// +optional
 	Stride int32 `json:"stride,omitempty"`
-
-	// TailscaleTags for each slot's Tailscale Service. The edge forwarder's
-	// grant targets these.
-	// +kubebuilder:default="tag:k8s-games"
-	// +optional
-	TailscaleTags string `json:"tailscaleTags,omitempty"`
 }
 
 // Connection is how players reach a server of a Game.
@@ -97,6 +93,44 @@ type Connection struct {
 
 	// +optional
 	PortPool *PortPoolConnection `json:"portPool,omitempty"`
+}
+
+// GameService shapes each server's Service, so it fits whatever exposes
+// servers in the cluster: a load balancer, a port forwarder or a
+// protocol-aware proxy.
+//
+// Annotation and label values can use $(SERVER), $(NAMESPACE), $(GAME),
+// $(SLOT) and $(ADDRESS), the server's address as in its status. For
+// example, mc-router finds Minecraft servers by
+// "mc-router.itzg.me/externalServerName: $(ADDRESS)".
+// +kubebuilder:validation:XValidation:rule="!has(self.loadBalancerClass) || self.type == 'LoadBalancer'",message="loadBalancerClass needs type LoadBalancer"
+// +kubebuilder:validation:XValidation:rule="!has(self.allocateLoadBalancerNodePorts) || self.type == 'LoadBalancer'",message="allocateLoadBalancerNodePorts needs type LoadBalancer"
+type GameService struct {
+	// Type of the Service.
+	// +kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
+	// +kubebuilder:default=ClusterIP
+	// +optional
+	Type corev1.ServiceType `json:"type,omitempty"`
+
+	// LoadBalancerClass picks the load balancer implementation. Kubernetes
+	// doesn't allow changing it on an existing Service.
+	// +optional
+	LoadBalancerClass *string `json:"loadBalancerClass,omitempty"`
+
+	// AllocateLoadBalancerNodePorts, false for load balancers that don't
+	// need node ports.
+	// +optional
+	AllocateLoadBalancerNodePorts *bool `json:"allocateLoadBalancerNodePorts,omitempty"`
+
+	// Annotations for each Service.
+	// +kubebuilder:validation:MaxProperties=50
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// Labels for each Service. games-manager's own labels take precedence.
+	// +kubebuilder:validation:MaxProperties=50
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // SizePreset is a named set of resources a server can choose.
@@ -188,6 +222,10 @@ type GameSpec struct {
 	Ports []GamePort `json:"ports"`
 
 	Connection Connection `json:"connection"`
+
+	// Service for each server. Defaults to a plain ClusterIP Service.
+	// +optional
+	Service GameService `json:"service,omitempty"`
 
 	// Sizes a server can choose from.
 	// +kubebuilder:validation:MinItems=1
