@@ -154,7 +154,8 @@ var _ = Describe("games-manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(address).To(Equal("alice.e2e.example.com"))
 
-		annotation, err := get("service", "alice", "-o", `jsonpath={.metadata.annotations.mc-router\.itzg\.me/externalServerName}`)
+		const routerAnnotation = `jsonpath={.metadata.annotations.mc-router\.itzg\.me/externalServerName}`
+		annotation, err := get("service", "alice", "-o", routerAnnotation)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(annotation).To(Equal("alice.e2e.example.com"))
 	})
