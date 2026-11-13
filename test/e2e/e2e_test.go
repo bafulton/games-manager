@@ -109,8 +109,9 @@ func setRunning(name string, running bool) {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 }
 
-func born(server string) string {
-	out, err := utils.Kubectl("exec", "-n", gamesNamespace, server+"-0", "--", "cat", "/world/born")
+// born reads when alice's world was created.
+func born() string {
+	out, err := utils.Kubectl("exec", "-n", gamesNamespace, "alice-0", "--", "cat", "/world/born")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	return out
 }
@@ -176,7 +177,7 @@ var _ = Describe("games-manager", Ordered, func() {
 	})
 
 	It("keeps the world when a server is deleted, and reuses it", func() {
-		first := born("alice")
+		first := born()
 
 		_, err := utils.Kubectl("delete", "gameserver", "alice", "-n", gamesNamespace, "--wait")
 		Expect(err).NotTo(HaveOccurred())
@@ -190,14 +191,14 @@ var _ = Describe("games-manager", Ordered, func() {
 		By("recreating the server on its old world")
 		createServer("alice")
 		expectPhase("alice", "Running", time.Minute)
-		Expect(born("alice")).To(Equal(first), "a recreated server should find its old world")
+		Expect(born()).To(Equal(first), "a recreated server should find its old world")
 	})
 
 	It("upgrades a server to another version on the same world", func() {
 		version, err := get("gameserver", "alice", "-o", "jsonpath={.spec.version}")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(version).To(Equal("v1"), "the server should have been given the default version")
-		first := born("alice")
+		first := born()
 
 		_, err = utils.Kubectl("patch", "gameserver", "alice", "-n", gamesNamespace,
 			"--type", "merge", "-p", `{"spec":{"version":"v2"}}`)
@@ -209,7 +210,7 @@ var _ = Describe("games-manager", Ordered, func() {
 			g.Expect(strings.TrimSpace(out)).To(Equal("2"))
 		}, 2*time.Minute, 2*time.Second).Should(Succeed())
 		expectPhase("alice", "Running", time.Minute)
-		Expect(born("alice")).To(Equal(first), "an upgraded server should keep its world")
+		Expect(born()).To(Equal(first), "an upgraded server should keep its world")
 	})
 
 	It("removes the world when a purged server is deleted", func() {

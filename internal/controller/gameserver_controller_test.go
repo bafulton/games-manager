@@ -89,13 +89,14 @@ var _ = Describe("GameServer Controller", func() {
 	})
 
 	It("pins each server to a version and upgrades only the server that changes", func() {
+		const oldVersion, newVersion = "1.20", "1.21"
 		game := &gamesv1alpha1.Game{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "minecraft"}, game)).To(Succeed())
 		game.Spec.Versions = []gamesv1alpha1.GameVersion{
-			{Name: "1.20", Env: []corev1.EnvVar{{Name: "VERSION", Value: "1.20.6"}}},
-			{Name: "1.21", Image: "itzg/minecraft-server:java21", Env: []corev1.EnvVar{{Name: "VERSION", Value: "1.21.4"}}},
+			{Name: oldVersion, Env: []corev1.EnvVar{{Name: "VERSION", Value: "1.20.6"}}},
+			{Name: newVersion, Image: "itzg/minecraft-server:java21", Env: []corev1.EnvVar{{Name: "VERSION", Value: "1.21.4"}}},
 		}
-		game.Spec.DefaultVersion = "1.20"
+		game.Spec.DefaultVersion = oldVersion
 		Expect(k8sClient.Update(ctx, game)).To(Succeed())
 		DeferCleanup(func() {
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "minecraft"}, game)).To(Succeed())
@@ -115,11 +116,11 @@ var _ = Describe("GameServer Controller", func() {
 		Expect(k8sClient.Create(ctx, alice)).To(Succeed())
 		reconcileUntilSettled("alice")
 		get(alice, "alice")
-		Expect(alice.Spec.Version).To(Equal("1.20"), "a server without a version gets the default")
+		Expect(alice.Spec.Version).To(Equal(oldVersion), "a server without a version gets the default")
 
 		By("changing the default, which moves no existing server")
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "minecraft"}, game)).To(Succeed())
-		game.Spec.DefaultVersion = "1.21"
+		game.Spec.DefaultVersion = newVersion
 		Expect(k8sClient.Update(ctx, game)).To(Succeed())
 		bob := server("bob", "minecraft")
 		bob.Namespace = testNamespace
@@ -127,12 +128,12 @@ var _ = Describe("GameServer Controller", func() {
 		reconcileUntilSettled("alice")
 		reconcileUntilSettled("bob")
 		get(alice, "alice")
-		Expect(alice.Spec.Version).To(Equal("1.20"))
+		Expect(alice.Spec.Version).To(Equal(oldVersion))
 		Expect(versionOf("alice")).To(Equal(game.Spec.Image + " 1.20.6"))
 		Expect(versionOf("bob")).To(Equal("itzg/minecraft-server:java21 1.21.4"))
 
 		By("upgrading alice alone")
-		alice.Spec.Version = "1.21"
+		alice.Spec.Version = newVersion
 		Expect(k8sClient.Update(ctx, alice)).To(Succeed())
 		reconcileUntilSettled("alice")
 		Expect(versionOf("alice")).To(Equal("itzg/minecraft-server:java21 1.21.4"))

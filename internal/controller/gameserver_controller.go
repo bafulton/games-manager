@@ -61,26 +61,8 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 	}
 	// Always honor a stop request, even if its Game or size no longer exists.
-	// Do not rebuild resources here: stopping must also work during a broken
-	// catalog update, without allocating a slot or creating a world.
 	if !server.IsRunning() {
-		sts := &appsv1.StatefulSet{}
-		err := r.Get(ctx, req.NamespacedName, sts)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
-		if err == nil {
-			if !metav1.IsControlledBy(sts, server) {
-				return ctrl.Result{}, r.setError(ctx, server, "ResourceConflict", "the StatefulSet is not owned by this server")
-			}
-			if sts.Spec.Replicas == nil || *sts.Spec.Replicas != 0 {
-				sts.Spec.Replicas = ptr.To[int32](0)
-				if err := r.Update(ctx, sts); err != nil {
-					return ctrl.Result{}, err
-				}
-			}
-		}
-		return ctrl.Result{}, r.updateStatus(ctx, nil, server, sts)
+		return ctrl.Result{}, r.stop(ctx, server)
 	}
 
 	game := &gamesv1alpha1.Game{}
@@ -106,34 +88,8 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, r.setError(ctx, server, "UnknownVersion", err.Error())
 	}
 
-	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionPortPool && server.Spec.Slot == nil {
-		slot, err := r.freeSlot(ctx, game)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if slot == nil {
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, r.setError(ctx, server, "NoSlotAvailable",
-				fmt.Sprintf("all %d slots of Game %q are taken", game.Spec.Connection.PortPool.Slots, game.Name))
-		}
-		server.Spec.Slot = slot
-		log.Info("assigned slot", "slot", *slot)
-		// The update triggers the next reconcile, which builds the resources.
-		return ctrl.Result{}, r.Update(ctx, server)
-	}
-	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionPortPool {
-		if err := r.validateSlot(ctx, game, server); err != nil {
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, r.setError(ctx, server, "SlotConflict", err.Error())
-		}
-	}
-
-	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionHostname {
-		conflict, err := r.hostnameConflict(ctx, game, server)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if conflict != "" {
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, r.setError(ctx, server, "HostnameConflict", conflict)
-		}
+	if result, done, err := r.claimAddress(ctx, game, server); done || err != nil {
+		return result, err
 	}
 
 	if err := r.ensurePVC(ctx, game, server); err != nil {
@@ -159,6 +115,65 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	return ctrl.Result{}, r.updateStatus(ctx, game, server, sts)
+}
+
+// stop scales the server's StatefulSet to zero, without rebuilding anything:
+// stopping must also work during a broken catalog update, without
+// allocating a slot or creating a world.
+func (r *GameServerReconciler) stop(ctx context.Context, server *gamesv1alpha1.GameServer) error {
+	sts := &appsv1.StatefulSet{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(server), sts)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err == nil {
+		if !metav1.IsControlledBy(sts, server) {
+			return r.setError(ctx, server, "ResourceConflict", "the StatefulSet is not owned by this server")
+		}
+		if sts.Spec.Replicas == nil || *sts.Spec.Replicas != 0 {
+			sts.Spec.Replicas = ptr.To[int32](0)
+			if err := r.Update(ctx, sts); err != nil {
+				return err
+			}
+		}
+	}
+	return r.updateStatus(ctx, nil, server, sts)
+}
+
+// claimAddress assigns a PortPool server its slot, and checks that no other
+// server holds its slot or hostname. done means Reconcile should return
+// result: after assigning a slot, or on a conflict.
+func (r *GameServerReconciler) claimAddress(ctx context.Context, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) (ctrl.Result, bool, error) {
+	log := logf.FromContext(ctx)
+	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionPortPool && server.Spec.Slot == nil {
+		slot, err := r.freeSlot(ctx, game)
+		if err != nil {
+			return ctrl.Result{}, true, err
+		}
+		if slot == nil {
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, true, r.setError(ctx, server, "NoSlotAvailable",
+				fmt.Sprintf("all %d slots of Game %q are taken", game.Spec.Connection.PortPool.Slots, game.Name))
+		}
+		server.Spec.Slot = slot
+		log.Info("assigned slot", "slot", *slot)
+		// The update triggers the next reconcile, which builds the resources.
+		return ctrl.Result{}, true, r.Update(ctx, server)
+	}
+	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionPortPool {
+		if err := r.validateSlot(ctx, game, server); err != nil {
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, true, r.setError(ctx, server, "SlotConflict", err.Error())
+		}
+	}
+	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionHostname {
+		conflict, err := r.hostnameConflict(ctx, game, server)
+		if err != nil {
+			return ctrl.Result{}, true, err
+		}
+		if conflict != "" {
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, true, r.setError(ctx, server, "HostnameConflict", conflict)
+		}
+	}
+	return ctrl.Result{}, false, nil
 }
 
 // validateSlot checks explicit/restored reservations too. When two servers
