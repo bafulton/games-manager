@@ -1,9 +1,11 @@
 apiVersion: games.homelab.io/v1alpha1
 kind: GameServer
 metadata:
-  labels:
-    app.kubernetes.io/name: games-manager
-    app.kubernetes.io/managed-by: kustomize
-  name: gameserver-sample
+  name: alice
+  namespace: default
 spec:
-  # TODO(user): Add fields here
+  game: minecraft
+  owner: alice
+  env:
+  - name: MOTD
+    value: Alice's world
