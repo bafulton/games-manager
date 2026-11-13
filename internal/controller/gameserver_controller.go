@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -57,6 +58,28 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := r.Update(ctx, server); err != nil {
 			return ctrl.Result{}, err
 		}
+	}
+	// Always honor a stop request, even if its Game or size no longer exists.
+	// Do not rebuild resources here: stopping must also work during a broken
+	// catalog update, without allocating a slot or creating a world.
+	if !server.IsRunning() {
+		sts := &appsv1.StatefulSet{}
+		err := r.Get(ctx, req.NamespacedName, sts)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+		if err == nil {
+			if !metav1.IsControlledBy(sts, server) {
+				return ctrl.Result{}, r.setError(ctx, server, "ResourceConflict", "the StatefulSet is not owned by this server")
+			}
+			if sts.Spec.Replicas == nil || *sts.Spec.Replicas != 0 {
+				sts.Spec.Replicas = ptr.To[int32](0)
+				if err := r.Update(ctx, sts); err != nil {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+		return ctrl.Result{}, r.updateStatus(ctx, nil, server, sts)
 	}
 
 	game := &gamesv1alpha1.Game{}
@@ -181,7 +204,9 @@ func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gamesv1al
 	}
 
 	server.Status.Phase = phase
-	server.Status.Address = address(game, server)
+	if game != nil {
+		server.Status.Address = address(game, server)
+	}
 	server.Status.ObservedGeneration = server.Generation
 	meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{
 		Type:               gamesv1alpha1.ConditionReady,
