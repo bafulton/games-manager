@@ -69,6 +69,24 @@ func sizeFor(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) (*games
 	return nil, fmt.Errorf("game %q has no size %q", game.Name, name)
 }
 
+// versionFor returns the server's version, or nil for a Game without
+// versions. The controller records the default in the server's spec before
+// building anything, so the server names its version by then.
+func versionFor(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) (*gamesv1alpha1.GameVersion, error) {
+	if len(game.Spec.Versions) == 0 {
+		if server.Spec.Version != "" {
+			return nil, fmt.Errorf("game %q has no versions, but the server names %q", game.Name, server.Spec.Version)
+		}
+		return nil, nil
+	}
+	for i := range game.Spec.Versions {
+		if game.Spec.Versions[i].Name == server.Spec.Version {
+			return &game.Spec.Versions[i], nil
+		}
+	}
+	return nil, fmt.Errorf("game %q has no version %q", game.Name, server.Spec.Version)
+}
+
 // address is where players connect, or "" while a PortPool server has no
 // slot yet.
 func address(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string {
@@ -136,6 +154,10 @@ func mutateStatefulSet(sts *appsv1.StatefulSet, game *gamesv1alpha1.Game, server
 	if err != nil {
 		return err
 	}
+	version, err := versionFor(game, server)
+	if err != nil {
+		return err
+	}
 
 	replicas := int32(0)
 	if server.IsRunning() {
@@ -187,13 +209,26 @@ func mutateStatefulSet(sts *appsv1.StatefulSet, game *gamesv1alpha1.Game, server
 		})
 	}
 
-	env := append(append([]corev1.EnvVar{}, game.Spec.Env...), server.Spec.Env...)
+	// Later entries win, so a version overrides the Game's env, and the
+	// server overrides both.
+	env := append([]corev1.EnvVar{}, game.Spec.Env...)
+	image, args := game.Spec.Image, game.Spec.Args
+	if version != nil {
+		env = append(env, version.Env...)
+		if version.Image != "" {
+			image = version.Image
+		}
+		if version.Args != nil {
+			args = version.Args
+		}
+	}
+	env = append(env, server.Spec.Env...)
 
 	container := corev1.Container{
 		Name:           gameContainerName,
-		Image:          game.Spec.Image,
+		Image:          image,
 		Command:        game.Spec.Command,
-		Args:           game.Spec.Args,
+		Args:           args,
 		Env:            env,
 		Ports:          ports,
 		Resources:      size.Resources,

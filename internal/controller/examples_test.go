@@ -12,6 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
 )
 
 var _ = Describe("Game validation", func() {
@@ -22,6 +24,26 @@ var _ = Describe("Game validation", func() {
 		err := k8sClient.Create(context.Background(), game, client.DryRunAll)
 		Expect(err).To(MatchError(ContainSubstring("set the architecture with arch")))
 	})
+
+	DescribeTable("checks defaultVersion against versions", func(versions []gamesv1alpha1.GameVersion, defaultVersion string, valid bool) {
+		game := minecraft()
+		game.Name = "versions-check"
+		game.Spec.Versions = versions
+		game.Spec.DefaultVersion = defaultVersion
+		err := k8sClient.Create(context.Background(), game, client.DryRunAll)
+		if valid {
+			Expect(err).NotTo(HaveOccurred())
+		} else {
+			Expect(err).To(MatchError(ContainSubstring("defaultVersion must name one of versions")))
+		}
+	},
+		Entry("a listed version", []gamesv1alpha1.GameVersion{{Name: "1.21"}, {Name: "1.20", Deprecated: true}}, "1.21", true),
+		Entry("no versions at all", nil, "", true),
+		Entry("versions without a default", []gamesv1alpha1.GameVersion{{Name: "1.21"}}, "", false),
+		Entry("an unlisted default", []gamesv1alpha1.GameVersion{{Name: "1.21"}}, "1.19", false),
+		Entry("a deprecated default", []gamesv1alpha1.GameVersion{{Name: "1.20", Deprecated: true}}, "1.20", false),
+		Entry("a default without versions", nil, "1.21", false),
+	)
 })
 
 // The examples are documentation, so make sure the CRDs accept them.

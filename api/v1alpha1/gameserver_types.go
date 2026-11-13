@@ -26,6 +26,7 @@ const (
 )
 
 // GameServerSpec defines the desired state of GameServer.
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.version) || has(self.version)",message="version cannot be removed once set; name the version to change to"
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.slot) || (has(self.slot) && self.slot == oldSelf.slot)",message="slot cannot change once assigned: it is the server's public address"
 type GameServerSpec struct {
 	// Game is the name of the Game this server runs.
@@ -33,6 +34,15 @@ type GameServerSpec struct {
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="game is immutable"
 	Game string `json:"game"`
+
+	// Version names one of the Game's versions. The controller sets the
+	// Game's defaultVersion when it's left empty, and then the server keeps
+	// it: changing it upgrades or downgrades this server alone, on the same
+	// world. Back the world up first; a downgrade may not read a world a
+	// newer version has saved.
+	// +kubebuilder:validation:MaxLength=63
+	// +optional
+	Version string `json:"version,omitempty"`
 
 	// Owner is who the server belongs to, as their identity-provider
 	// username. The UI lets only the owner change it.
@@ -85,6 +95,7 @@ type GameServerStatus struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Game",type=string,JSONPath=`.spec.game`
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.spec.version`
 // +kubebuilder:printcolumn:name="Owner",type=string,JSONPath=`.spec.owner`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="Address",type=string,JSONPath=`.status.address`

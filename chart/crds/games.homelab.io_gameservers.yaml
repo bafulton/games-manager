@@ -18,6 +18,9 @@ spec:
     - jsonPath: .spec.game
       name: Game
       type: string
+    - jsonPath: .spec.version
+      name: Version
+      type: string
     - jsonPath: .spec.owner
       name: Owner
       type: string
@@ -205,10 +208,22 @@ spec:
                 format: int32
                 minimum: 0
                 type: integer
+              version:
+                description: |-
+                  Version names one of the Game's versions. The controller sets the
+                  Game's defaultVersion when it's left empty, and then the server keeps
+                  it: changing it upgrades or downgrades this server alone, on the same
+                  world. Back the world up first; a downgrade may not read a world a
+                  newer version has saved.
+                maxLength: 63
+                type: string
             required:
             - game
             type: object
             x-kubernetes-validations:
+            - message: version cannot be removed once set; name the version to change
+                to
+              rule: '!has(oldSelf.version) || has(self.version)'
             - message: 'slot cannot change once assigned: it is the server''s public
                 address'
               rule: '!has(oldSelf.slot) || (has(self.slot) && self.slot == oldSelf.slot)'
