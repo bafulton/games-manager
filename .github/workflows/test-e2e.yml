@@ -35,21 +35,21 @@ jobs:
         with:
           version: v4.3.1
 
-      # Built here, with a layer cache, rather than by the suite's plain
-      # docker build: the uncached build was half the job.
-      - uses: docker/setup-buildx-action@v4
+      # Compiled on the runner, where setup-go restores Go's build cache, and
+      # copied into a minimal image. A Docker layer cache doesn't help: any
+      # source change rebuilds the go build layer from scratch.
       - name: Build the controller image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64
-          load: true
-          tags: ${{ env.E2E_IMAGE }}
-          provenance: false
-          cache-from: type=gha,scope=e2e
-          cache-to: type=gha,mode=max,scope=e2e
+        run: |
+          mkdir -p bin/e2e
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/e2e/manager ./cmd
+          docker build -f test/e2e/Dockerfile -t "$E2E_IMAGE" bin/e2e
 
+      # Calls the suite directly: Lint and Tests already regenerate, format
+      # and vet, which make test-e2e would repeat.
       - name: Run e2e tests
         env:
           E2E_SKIP_IMAGE_BUILD: "true"
-        run: make test-e2e
+          KIND_CLUSTER: games-manager-test-e2e
+        run: |
+          kind create cluster --name "$KIND_CLUSTER"
+          go test ./test/e2e/ -v -ginkgo.v
