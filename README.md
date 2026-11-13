@@ -44,3 +44,16 @@ make build
 ```
 
 Scaffolded with kubebuilder v4.6.0.
+
+## Installing
+
+Each release tag `vX.Y.Z` publishes the image and the chart to GHCR:
+
+```sh
+helm install games-manager oci://ghcr.io/bafulton/charts/games-manager \
+  --version X.Y.Z --namespace games-manager --create-namespace
+```
+
+The chart installs the CRDs (from `chart/crds/`), the controller and its
+RBAC. `make chart` regenerates the chart's CRDs and ClusterRole from the API;
+CI fails if they're out of date.

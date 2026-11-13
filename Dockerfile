@@ -1,5 +1,7 @@
 # Build the manager binary
-FROM golang:1.24 AS builder
+# Build on the runner's own platform and cross-compile, rather than
+# emulating arm64 for the whole Go build.
+FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 

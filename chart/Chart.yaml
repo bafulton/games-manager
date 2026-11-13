@@ -1,0 +1,10 @@
+apiVersion: v2
+name: games-manager
+description: Controller for self-service game servers - Game and GameServer CRDs
+type: application
+# The release workflow sets both to the git tag's version.
+version: 0.0.0
+appVersion: "0.0.0"
+home: https://github.com/bafulton/games-manager
+sources:
+  - https://github.com/bafulton/games-manager
