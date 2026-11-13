@@ -15,6 +15,23 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+          # setup-go's cache is one entry shared by every job and saved by
+          # whichever finishes first, so it never holds this job's
+          # cross-compiled packages. This job keeps its own below.
+          cache: false
+
+      # Restored on every run; saved only from main, so pull requests reuse
+      # main's build cache without paying to upload their own.
+      - name: Restore Go build cache
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-chart-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-chart-${{ hashFiles('go.sum') }}-
+            go-chart-
 
       - uses: azure/setup-helm@v5.1.0
         with:
@@ -37,7 +54,7 @@ jobs:
 
       # Builds both architectures and pushes nothing, so a broken image
       # fails review instead of a release. The managers are cross-compiled
-      # here, with setup-go's build cache, so the image build only copies
+      # here, with this job's Go build cache, so the image build only copies
       # them in.
       - name: Cross-compile the manager
         run: make build-linux
@@ -49,3 +66,12 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: false
           provenance: false
+
+      - name: Save Go build cache
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-chart-${{ hashFiles('go.sum') }}-${{ github.sha }}
