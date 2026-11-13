@@ -2,7 +2,7 @@
 # that routes by the hostname the client sends lets every server share port
 # 25565. This example uses mc-router (itzg/mc-router, run with
 # --in-kube-cluster), which finds each server's Service by an annotation.
-apiVersion: games.homelab.io/v1alpha1
+apiVersion: games-manager.io/v1alpha1
 kind: Game
 metadata:
   name: minecraft
@@ -77,7 +77,7 @@ spec:
   # The image saves the world and stops cleanly on SIGTERM, so no preStop.
   terminationGracePeriodSeconds: 120
 ---
-apiVersion: games.homelab.io/v1alpha1
+apiVersion: games-manager.io/v1alpha1
 kind: GameServer
 metadata:
   name: alice

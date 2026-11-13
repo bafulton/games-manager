@@ -3,7 +3,7 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 cliVersion: v4.6.0
-domain: homelab.io
+domain: io
 layout:
 - go.kubebuilder.io/v4
 projectName: games-manager
@@ -11,8 +11,8 @@ repo: github.com/bafulton/games-manager
 resources:
 - api:
     crdVersion: v1
-  domain: homelab.io
-  group: games
+  domain: io
+  group: games-manager
   kind: Game
   path: github.com/bafulton/games-manager/api/v1alpha1
   version: v1alpha1
@@ -20,8 +20,8 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: homelab.io
-  group: games
+  domain: io
+  group: games-manager
   kind: GameServer
   path: github.com/bafulton/games-manager/api/v1alpha1
   version: v1alpha1

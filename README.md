@@ -41,7 +41,7 @@ The controller turns each `GameServer` into:
   cluster default if unset) and carrying its `storage.labels` and
   `storage.annotations`, eg to join a backup job. It has no owner: deleting
   a server keeps its world. Annotate the server with
-  `games.homelab.io/purge: "true"` before deleting it to remove the world too.
+  `games-manager.io/purge: "true"` before deleting it to remove the world too.
 - a **Service**, shaped by the Game's `service`: its type, load balancer
   class, labels and annotations. Annotation and label values can use
   `$(SERVER)`, `$(NAMESPACE)`, `$(GAME)`, `$(SLOT)` and `$(ADDRESS)`, so the

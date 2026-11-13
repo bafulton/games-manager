@@ -25,7 +25,7 @@ const (
 // records when its world was first created in /world/born, so a server
 // recreated on an existing world can be told apart from a fresh one.
 const sleeperGame = `
-apiVersion: games.homelab.io/v1alpha1
+apiVersion: games-manager.io/v1alpha1
 kind: Game
 metadata:
   name: sleeper
@@ -75,7 +75,7 @@ func applyManifest(manifest string) {
 
 func createServer(name string) {
 	applyManifest(fmt.Sprintf(`
-apiVersion: games.homelab.io/v1alpha1
+apiVersion: games-manager.io/v1alpha1
 kind: GameServer
 metadata:
   name: %s
@@ -220,7 +220,7 @@ var _ = Describe("games-manager", Ordered, func() {
 		createServer("bob")
 		expectPhase("bob", "Running", time.Minute)
 
-		_, err := utils.Kubectl("annotate", "gameserver", "bob", "-n", gamesNamespace, "games.homelab.io/purge=true")
+		_, err := utils.Kubectl("annotate", "gameserver", "bob", "-n", gamesNamespace, "games-manager.io/purge=true")
 		Expect(err).NotTo(HaveOccurred())
 		_, err = utils.Kubectl("delete", "gameserver", "bob", "-n", gamesNamespace, "--wait")
 		Expect(err).NotTo(HaveOccurred())

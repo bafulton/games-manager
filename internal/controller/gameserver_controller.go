@@ -23,7 +23,7 @@ import (
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
 )
 
-const finalizer = "games.homelab.io/finalizer"
+const finalizer = "games-manager.io/finalizer"
 
 // GameServerReconciler turns each GameServer into a StatefulSet, a PVC and a
 // Service, using its Game as the template.
@@ -36,10 +36,10 @@ type GameServerReconciler struct {
 	APIReader client.Reader
 }
 
-// +kubebuilder:rbac:groups=games.homelab.io,resources=games,verbs=get;list;watch
-// +kubebuilder:rbac:groups=games.homelab.io,resources=gameservers,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=games.homelab.io,resources=gameservers/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=games.homelab.io,resources=gameservers/finalizers,verbs=update
+// +kubebuilder:rbac:groups=games-manager.io,resources=games,verbs=get;list;watch
+// +kubebuilder:rbac:groups=games-manager.io,resources=gameservers,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=games-manager.io,resources=gameservers/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=games-manager.io,resources=gameservers/finalizers,verbs=update
 // +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;delete
