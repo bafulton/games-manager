@@ -45,9 +45,15 @@ make build
 
 Scaffolded with kubebuilder v4.6.0.
 
-## Installing
+## Releasing
 
-Each release tag `vX.Y.Z` publishes the image and the chart to GHCR:
+Release Please keeps a release PR open with the next version and changelog,
+worked out from [conventional commits](https://www.conventionalcommits.org)
+on `main`: `fix:` bumps the patch version, `feat:` the minor version, and,
+before 1.0, a breaking change also bumps the minor version. Merging the PR
+tags `vX.Y.Z` and publishes the image and chart to GHCR at that version.
+
+## Installing
 
 ```sh
 helm install games-manager oci://ghcr.io/bafulton/charts/games-manager \

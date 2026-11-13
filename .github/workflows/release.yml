@@ -1,9 +1,17 @@
 name: Release
 
-# Pushing a tag like v0.1.0 publishes the image as
-# ghcr.io/bafulton/games-manager:0.1.0 and the chart as
-# oci://ghcr.io/bafulton/charts/games-manager, version 0.1.0.
+# Publishes version X.Y.Z as the image ghcr.io/bafulton/games-manager:X.Y.Z
+# and the chart oci://ghcr.io/bafulton/charts/games-manager, version X.Y.Z.
+#
+# Release Please calls this when its release PR merges. A vX.Y.Z tag pushed
+# by hand also runs it.
 on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version to publish, without the leading v.
+        required: true
+        type: string
   push:
     tags: ['v*.*.*']
 
@@ -19,7 +27,15 @@ jobs:
 
       - name: Read version
         id: meta
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$VERSION' is not a release version"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
