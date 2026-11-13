@@ -110,6 +110,34 @@ type SizePreset struct {
 	Resources corev1.ResourceRequirements `json:"resources"`
 }
 
+// GameVersion is one version of a game that servers can run, such as a
+// Minecraft release. It changes only what runs, not how the server is
+// reached or stored, so servers of every version share the Game's ports,
+// storage and connection.
+type GameVersion struct {
+	// Name of the version, as players see it, eg "1.21".
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-._a-z0-9]*[a-z0-9])?$`
+	Name string `json:"name"`
+
+	// Image replaces the Game's image for this version.
+	// +optional
+	Image string `json:"image,omitempty"`
+
+	// Env for this version, after the Game's env and before the server's.
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// Args replace the Game's args for this version.
+	// +optional
+	Args []string `json:"args,omitempty"`
+
+	// Deprecated versions keep running for the servers that use them, but
+	// aren't offered for new servers.
+	// +optional
+	Deprecated bool `json:"deprecated,omitempty"`
+}
+
 // GameStorage is the volume each server's world lives on.
 type GameStorage struct {
 	// Size of each server's volume.
@@ -134,6 +162,7 @@ type GameStorage struct {
 
 // GameSpec defines how to run servers of one game.
 // +kubebuilder:validation:XValidation:rule="self.sizes.exists(s, s.name == self.defaultSize)",message="defaultSize must name one of sizes"
+// +kubebuilder:validation:XValidation:rule="has(self.versions) && size(self.versions) > 0 ? has(self.defaultVersion) && self.versions.exists(v, v.name == self.defaultVersion && !(has(v.deprecated) && v.deprecated)) : !has(self.defaultVersion) || size(self.defaultVersion) == 0",message="defaultVersion must name one of versions that isn't deprecated, and is only set with versions"
 // +kubebuilder:validation:XValidation:rule="!has(self.arch) || size(self.arch) == 0 || !has(self.nodeSelector) || !('kubernetes.io/arch' in self.nodeSelector)",message="set the architecture with arch, not nodeSelector"
 type GameSpec struct {
 	// Image of the game server, pinned to a tag or digest.
@@ -170,6 +199,20 @@ type GameSpec struct {
 	// DefaultSize is the size a server gets when it names none.
 	// +kubebuilder:validation:MaxLength=63
 	DefaultSize string `json:"defaultSize"`
+
+	// Versions servers can choose from. Without any, every server runs the
+	// Game's image, env and args as they are.
+	// +kubebuilder:validation:MaxItems=50
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Versions []GameVersion `json:"versions,omitempty"`
+
+	// DefaultVersion is the version a new server gets when it names none.
+	// The server keeps it, so changing this never moves an existing server.
+	// +kubebuilder:validation:MaxLength=63
+	// +optional
+	DefaultVersion string `json:"defaultVersion,omitempty"`
 
 	Storage GameStorage `json:"storage"`
 

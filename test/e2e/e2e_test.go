@@ -45,6 +45,12 @@ spec:
         requests: {cpu: 10m, memory: 16Mi}
         limits: {memory: 32Mi}
   defaultSize: small
+  versions:
+    - name: v1
+      env: [{name: SLEEPER_VERSION, value: "1"}]
+    - name: v2
+      env: [{name: SLEEPER_VERSION, value: "2"}]
+  defaultVersion: v1
   storage:
     size: 64Mi
     mountPath: /world
@@ -185,6 +191,25 @@ var _ = Describe("games-manager", Ordered, func() {
 		createServer("alice")
 		expectPhase("alice", "Running", time.Minute)
 		Expect(born("alice")).To(Equal(first), "a recreated server should find its old world")
+	})
+
+	It("upgrades a server to another version on the same world", func() {
+		version, err := get("gameserver", "alice", "-o", "jsonpath={.spec.version}")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(version).To(Equal("v1"), "the server should have been given the default version")
+		first := born("alice")
+
+		_, err = utils.Kubectl("patch", "gameserver", "alice", "-n", gamesNamespace,
+			"--type", "merge", "-p", `{"spec":{"version":"v2"}}`)
+		Expect(err).NotTo(HaveOccurred())
+
+		Eventually(func(g Gomega) {
+			out, err := utils.Kubectl("exec", "-n", gamesNamespace, "alice-0", "--", "printenv", "SLEEPER_VERSION")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(strings.TrimSpace(out)).To(Equal("2"))
+		}, 2*time.Minute, 2*time.Second).Should(Succeed())
+		expectPhase("alice", "Running", time.Minute)
+		Expect(born("alice")).To(Equal(first), "an upgraded server should keep its world")
 	})
 
 	It("removes the world when a purged server is deleted", func() {

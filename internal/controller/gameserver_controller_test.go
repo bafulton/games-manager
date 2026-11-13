@@ -88,6 +88,71 @@ var _ = Describe("GameServer Controller", func() {
 		Expect(s.Status.Phase).To(Equal(gamesv1alpha1.PhaseStarting))
 	})
 
+	It("pins each server to a version and upgrades only the server that changes", func() {
+		game := &gamesv1alpha1.Game{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "minecraft"}, game)).To(Succeed())
+		game.Spec.Versions = []gamesv1alpha1.GameVersion{
+			{Name: "1.20", Env: []corev1.EnvVar{{Name: "VERSION", Value: "1.20.6"}}},
+			{Name: "1.21", Image: "itzg/minecraft-server:java21", Env: []corev1.EnvVar{{Name: "VERSION", Value: "1.21.4"}}},
+		}
+		game.Spec.DefaultVersion = "1.20"
+		Expect(k8sClient.Update(ctx, game)).To(Succeed())
+		DeferCleanup(func() {
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "minecraft"}, game)).To(Succeed())
+			game.Spec.Versions, game.Spec.DefaultVersion = nil, ""
+			Expect(k8sClient.Update(ctx, game)).To(Succeed())
+		})
+
+		versionOf := func(name string) string {
+			sts := &appsv1.StatefulSet{}
+			get(sts, name)
+			c := sts.Spec.Template.Spec.Containers[0]
+			return c.Image + " " + c.Env[len(c.Env)-1].Value
+		}
+
+		alice := server("alice", "minecraft")
+		alice.Namespace = testNamespace
+		Expect(k8sClient.Create(ctx, alice)).To(Succeed())
+		reconcileUntilSettled("alice")
+		get(alice, "alice")
+		Expect(alice.Spec.Version).To(Equal("1.20"), "a server without a version gets the default")
+
+		By("changing the default, which moves no existing server")
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "minecraft"}, game)).To(Succeed())
+		game.Spec.DefaultVersion = "1.21"
+		Expect(k8sClient.Update(ctx, game)).To(Succeed())
+		bob := server("bob", "minecraft")
+		bob.Namespace = testNamespace
+		Expect(k8sClient.Create(ctx, bob)).To(Succeed())
+		reconcileUntilSettled("alice")
+		reconcileUntilSettled("bob")
+		get(alice, "alice")
+		Expect(alice.Spec.Version).To(Equal("1.20"))
+		Expect(versionOf("alice")).To(Equal(game.Spec.Image + " 1.20.6"))
+		Expect(versionOf("bob")).To(Equal("itzg/minecraft-server:java21 1.21.4"))
+
+		By("upgrading alice alone")
+		alice.Spec.Version = "1.21"
+		Expect(k8sClient.Update(ctx, alice)).To(Succeed())
+		reconcileUntilSettled("alice")
+		Expect(versionOf("alice")).To(Equal("itzg/minecraft-server:java21 1.21.4"))
+
+		By("refusing to clear a version")
+		get(alice, "alice")
+		alice.Spec.Version = ""
+		Expect(k8sClient.Update(ctx, alice)).NotTo(Succeed())
+
+		By("reporting a version the Game no longer has")
+		get(alice, "alice")
+		alice.Spec.Version = "1.19"
+		Expect(k8sClient.Update(ctx, alice)).To(Succeed())
+		reconcileUntilSettled("alice")
+		get(alice, "alice")
+		Expect(alice.Status.Phase).To(Equal(gamesv1alpha1.PhaseError))
+		Expect(alice.Status.Conditions[0].Reason).To(Equal("UnknownVersion"))
+		Expect(versionOf("alice")).To(Equal("itzg/minecraft-server:java21 1.21.4"), "the running server is left alone")
+	})
+
 	It("stops a server by scaling it to zero", func() {
 		s := server("alice", "minecraft")
 		s.Namespace = testNamespace

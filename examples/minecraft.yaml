@@ -35,6 +35,21 @@ spec:
         requests: {cpu: "1", memory: 4608Mi}
         limits: {memory: 5Gi}
   defaultSize: small
+  # Each server stays on the version it was created with until its owner
+  # changes spec.version. VERSION pins the server jar the image downloads;
+  # without it, the image runs the latest release.
+  versions:
+    - name: "1.21"
+      env:
+        - name: VERSION
+          value: 1.21.4
+    # Older releases need an older Java, so this version swaps the image.
+    - name: "1.20"
+      image: itzg/minecraft-server:2026.10.1-java17
+      env:
+        - name: VERSION
+          value: 1.20.4
+  defaultVersion: "1.21"
   storage:
     size: 10Gi
     mountPath: /data
@@ -66,6 +81,8 @@ metadata:
   namespace: games
 spec:
   game: minecraft
+  # Optional: the Game's defaultVersion is recorded here when left out.
+  version: "1.21"
   owner: alice
   env:
     - name: MOTD

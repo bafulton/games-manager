@@ -90,8 +90,20 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{}, err
 	}
+	if server.Spec.Version == "" && game.Spec.DefaultVersion != "" {
+		// Record the default, so a later change to it doesn't move this
+		// server. A server created stopped gets it on its first start: it
+		// has no world yet that an older version would need.
+		server.Spec.Version = game.Spec.DefaultVersion
+		log.Info("assigned version", "version", server.Spec.Version)
+		// The update triggers the next reconcile, which builds the resources.
+		return ctrl.Result{}, r.Update(ctx, server)
+	}
 	if _, err := sizeFor(game, server); err != nil {
 		return ctrl.Result{}, r.setError(ctx, server, "UnknownSize", err.Error())
+	}
+	if _, err := versionFor(game, server); err != nil {
+		return ctrl.Result{}, r.setError(ctx, server, "UnknownVersion", err.Error())
 	}
 
 	if game.Spec.Connection.Type == gamesv1alpha1.ConnectionPortPool && server.Spec.Slot == nil {

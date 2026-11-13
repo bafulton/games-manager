@@ -8,17 +8,39 @@ servers. The platform stays in git; the servers themselves don't.
 
 - **`Game`** (cluster-scoped, kept in git): how to run one game. Its image,
   command, ports, how players connect (a hostname, or a slot from a port
-  pool), resource presets and storage size.
+  pool), resource presets, storage size and the versions servers can run.
 - **`GameServer`** (namespaced, created at runtime): one server of one game.
-  Its owner, whether it's running, and its size preset.
+  Its owner, whether it's running, its size preset and its version.
+
+### Versions
+
+A Game can list `versions`, so servers of one game can run different
+releases at once, eg one Minecraft world on 1.21 and another on 1.20. A
+version overrides the Game's `image`, `args` and `env` (its env comes after
+the Game's and before the server's); everything else, including ports,
+storage and connection, is shared by every version.
+
+A new server gets the Game's `defaultVersion`, recorded in its
+`spec.version`, and keeps it: adding versions or changing the default moves
+no existing server. Changing a server's `spec.version` upgrades or
+downgrades that server alone, on the same world, so back the world up
+first. Mark a version `deprecated` to stop offering it for new servers while
+existing servers keep running it. Removing a version that servers still use
+puts them in `UnknownVersion`; they keep running as they were, and can still
+be stopped, until they name another version.
+
+Editing a version in place, or the shared parts of the Game, rolls every
+server that uses it. Name versions by release line (`"1.21"`) so updates
+within that line reach its servers.
 
 The controller turns each `GameServer` into:
 
 - a **StatefulSet** with 0 or 1 replicas, from `spec.running`. Changing
   `spec.restartedAt` restarts it.
-- a **PVC**, `<server>-world`, labeled into the Longhorn `games` recurring-job
-  group so backup jobs for that group cover every server. It has no owner:
-  deleting a server keeps its world. Annotate the server with
+- a **PVC**, `<server>-world`, of the Game's `storage.storageClassName` (the
+  cluster default if unset) and carrying its `storage.labels` and
+  `storage.annotations`, eg to join a backup job. It has no owner: deleting
+  a server keeps its world. Annotate the server with
   `games.homelab.io/purge: "true"` before deleting it to remove the world too.
 - a **Service**. A `Hostname` game gets a ClusterIP that mc-router discovers
   by annotation. A `PortPool` game gets a Tailscale LoadBalancer named
@@ -32,8 +54,8 @@ Valheim (PortPool). The tests check that the CRDs accept them.
 ## Status
 
 Early: `v1alpha1`, and the API will change. Design and roadmap are tracked in
-the homelab project (CAT-84). It's built for one cluster first, so it assumes
-Longhorn for storage and the Tailscale operator for exposing servers.
+the homelab project (CAT-84). It's built for one cluster first, so `PortPool`
+games assume the Tailscale operator for exposing servers.
 
 ## Development
 

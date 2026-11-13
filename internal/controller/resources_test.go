@@ -170,6 +170,54 @@ func TestScheduling(t *testing.T) {
 	}
 }
 
+func TestVersions(t *testing.T) {
+	game, s := minecraft(), server("alice", "minecraft")
+	game.Spec.Args = []string{"--nogui"}
+	game.Spec.Versions = []gamesv1alpha1.GameVersion{
+		{Name: "1.21", Env: []corev1.EnvVar{{Name: "VERSION", Value: "1.21.4"}}},
+		{Name: "1.16", Image: "ghcr.io/example/minecraft:java8", Args: []string{}, Env: []corev1.EnvVar{
+			{Name: "VERSION", Value: "1.16.5"}, {Name: "PUBLIC", Value: "true"},
+		}},
+	}
+	game.Spec.DefaultVersion = "1.21"
+
+	s.Spec.Version = "1.21"
+	sts := &appsv1.StatefulSet{}
+	if err := mutateStatefulSet(sts, game, s); err != nil {
+		t.Fatal(err)
+	}
+	c := sts.Spec.Template.Spec.Containers[0]
+	if c.Image != game.Spec.Image || len(c.Args) != 1 {
+		t.Errorf("image, args = %s, %v; a version without overrides should keep the Game's", c.Image, c.Args)
+	}
+	if last := c.Env[len(c.Env)-1]; last.Name != "VERSION" || last.Value != "1.21.4" {
+		t.Errorf("last env = %+v, want the version's VERSION after the Game's env", last)
+	}
+
+	s.Spec.Version = "1.16"
+	s.Spec.Env = []corev1.EnvVar{{Name: "PUBLIC", Value: "false"}}
+	if err := mutateStatefulSet(sts, game, s); err != nil {
+		t.Fatal(err)
+	}
+	c = sts.Spec.Template.Spec.Containers[0]
+	if c.Image != "ghcr.io/example/minecraft:java8" || len(c.Args) != 0 {
+		t.Errorf("image, args = %s, %v; want the version's overrides", c.Image, c.Args)
+	}
+	// The server's env comes after the version's, so its PUBLIC wins.
+	if last := c.Env[len(c.Env)-1]; last.Name != "PUBLIC" || last.Value != "false" {
+		t.Errorf("last env = %+v, want the server's PUBLIC=false", last)
+	}
+
+	s.Spec.Version = "1.12"
+	if err := mutateStatefulSet(sts, game, s); err == nil {
+		t.Error("an unknown version should be an error")
+	}
+	game.Spec.Versions, game.Spec.DefaultVersion = nil, ""
+	if err := mutateStatefulSet(sts, game, s); err == nil {
+		t.Error("naming a version of a Game without versions should be an error")
+	}
+}
+
 func TestRestartRollsThePod(t *testing.T) {
 	game, s := valheim(), server("bob", "valheim")
 	sts := &appsv1.StatefulSet{}
