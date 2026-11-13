@@ -19,7 +19,7 @@ const (
 const (
 	// PurgeAnnotation, set to "true" before deleting a GameServer, deletes
 	// its PVC too. Without it the world is kept.
-	PurgeAnnotation = "games.homelab.io/purge"
+	PurgeAnnotation = "games-manager.io/purge"
 
 	// ConditionReady is true when the server's pod is ready for players.
 	ConditionReady = "Ready"

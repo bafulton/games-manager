@@ -47,7 +47,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 
 .PHONY: chart
 chart: manifests ## Copy the generated CRDs and controller RBAC rules into the Helm chart.
-	rm -f chart/crds/*.yaml
+	rm -rf chart/crds && mkdir chart/crds
 	cp config/crd/bases/*.yaml chart/crds/
 	cp LICENSE chart/LICENSE
 	{ printf '%s\n' \

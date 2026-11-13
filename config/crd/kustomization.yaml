@@ -2,8 +2,8 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/games.homelab.io_games.yaml
-- bases/games.homelab.io_gameservers.yaml
+- bases/games-manager.io_games.yaml
+- bases/games-manager.io_gameservers.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

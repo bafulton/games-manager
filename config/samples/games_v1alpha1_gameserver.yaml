@@ -1,4 +1,4 @@
-apiVersion: games.homelab.io/v1alpha1
+apiVersion: games-manager.io/v1alpha1
 kind: GameServer
 metadata:
   name: alice

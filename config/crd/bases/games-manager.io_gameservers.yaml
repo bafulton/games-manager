@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
-  name: gameservers.games.homelab.io
+  name: gameservers.games-manager.io
 spec:
-  group: games.homelab.io
+  group: games-manager.io
   names:
     kind: GameServer
     listKind: GameServerList

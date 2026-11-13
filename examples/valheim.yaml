@@ -3,7 +3,7 @@
 # games-manager forwards each slot's ports to the server's Service, on the
 # game's own 2456-2457; here, each Service is a LoadBalancer named for its
 # slot, so the forwarder's routes never change.
-apiVersion: games.homelab.io/v1alpha1
+apiVersion: games-manager.io/v1alpha1
 kind: Game
 metadata:
   name: valheim
@@ -56,7 +56,7 @@ spec:
   # supervisord stops valheim-server on SIGTERM, which saves the world.
   terminationGracePeriodSeconds: 120
 ---
-apiVersion: games.homelab.io/v1alpha1
+apiVersion: games-manager.io/v1alpha1
 kind: GameServer
 metadata:
   name: bob

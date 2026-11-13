@@ -17,17 +17,17 @@ import (
 )
 
 const (
-	labelGame   = "games.homelab.io/game"
-	labelServer = "games.homelab.io/server"
+	labelGame   = "games-manager.io/game"
+	labelServer = "games-manager.io/server"
 
 	// restartedAtAnnotation goes on the pod template, so changing
 	// spec.restartedAt rolls the pod.
-	restartedAtAnnotation = "games.homelab.io/restartedAt"
+	restartedAtAnnotation = "games-manager.io/restartedAt"
 
 	// managedAnnotationsKey lists the Service annotations that came from
 	// the Game, so the controller removes one the Game stops setting while
 	// leaving annotations other controllers add alone.
-	managedAnnotationsKey = "games.homelab.io/managed-annotations"
+	managedAnnotationsKey = "games-manager.io/managed-annotations"
 
 	gameContainerName = "game"
 	worldVolumeName   = "world"

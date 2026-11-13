@@ -41,7 +41,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - games.homelab.io
+  - games-manager.io
   resources:
   - games
   verbs:
@@ -49,7 +49,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - games.homelab.io
+  - games-manager.io
   resources:
   - gameservers
   verbs:
@@ -59,13 +59,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - games.homelab.io
+  - games-manager.io
   resources:
   - gameservers/finalizers
   verbs:
   - update
 - apiGroups:
-  - games.homelab.io
+  - games-manager.io
   resources:
   - gameservers/status
   verbs:
