@@ -14,6 +14,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var _ = Describe("Game validation", func() {
+	It("rejects an architecture in nodeSelector alongside arch", func() {
+		game := valheim()
+		game.Name = "arch-twice"
+		game.Spec.NodeSelector = map[string]string{"kubernetes.io/arch": "arm64"}
+		err := k8sClient.Create(context.Background(), game, client.DryRunAll)
+		Expect(err).To(MatchError(ContainSubstring("set the architecture with arch")))
+	})
+})
+
 // The examples are documentation, so make sure the CRDs accept them.
 var _ = Describe("Examples", func() {
 	It("are accepted by the CRDs", func() {

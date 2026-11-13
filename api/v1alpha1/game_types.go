@@ -123,6 +123,7 @@ type GameStorage struct {
 
 // GameSpec defines how to run servers of one game.
 // +kubebuilder:validation:XValidation:rule="self.sizes.exists(s, s.name == self.defaultSize)",message="defaultSize must name one of sizes"
+// +kubebuilder:validation:XValidation:rule="!has(self.arch) || self.arch == '' || !has(self.nodeSelector) || !('kubernetes.io/arch' in self.nodeSelector)",message="set the architecture with arch, not nodeSelector"
 type GameSpec struct {
 	// Image of the game server, pinned to a tag or digest.
 	// +kubebuilder:validation:MinLength=1
@@ -166,6 +167,21 @@ type GameSpec struct {
 	// +kubebuilder:validation:Enum="";amd64;arm64
 	// +optional
 	Arch string `json:"arch,omitempty"`
+
+	// NodeSelector for every server's pod, for a hard placement constraint.
+	// arch is added to it.
+	// +kubebuilder:validation:MaxProperties=20
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// Affinity for every server's pod. A preferred node affinity steers
+	// servers toward some nodes without ruling the others out.
+	// +optional
+	Affinity *corev1.Affinity `json:"affinity,omitempty"`
+
+	// Tolerations for every server's pod.
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
 	// ReadinessProbe for the game container. A server reports Ready from
 	// it, so it should mean "players can join".

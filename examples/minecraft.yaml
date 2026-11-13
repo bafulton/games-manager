@@ -45,6 +45,17 @@ spec:
     initialDelaySeconds: 30
     periodSeconds: 10
     failureThreshold: 30
+  # Steer servers toward some nodes without ruling the others out, eg nodes
+  # with spare memory. nodeSelector and tolerations are also available.
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 50
+          preference:
+            matchExpressions:
+              - key: example.com/pool
+                operator: In
+                values: [games]
   # The image saves the world and stops cleanly on SIGTERM, so no preStop.
   terminationGracePeriodSeconds: 120
 ---
