@@ -1,7 +1,12 @@
 package controller
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"net"
+	"sort"
+	"strconv"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -26,11 +31,12 @@ const (
 	// spec.restartedAt rolls the pod.
 	restartedAtAnnotation = "games.homelab.io/restartedAt"
 
-	mcRouterAnnotation   = "mc-router.itzg.me/externalServerName"
-	tailscaleHostnameKey = "tailscale.com/hostname"
-	tailscaleTagsKey     = "tailscale.com/tags"
-	gameContainerName    = "game"
-	worldVolumeName      = "world"
+	mcRouterAnnotation           = "mc-router.itzg.me/externalServerName"
+	tailscaleHostnameKey         = "tailscale.com/hostname"
+	tailscaleTagsKey             = "tailscale.com/tags"
+	managedServiceAnnotationsKey = "games.homelab.io/service-annotation-keys"
+	gameContainerName            = "game"
+	worldVolumeName              = "world"
 )
 
 func labels(game *gameTemplate, server *gamesv1alpha1.GameServer) map[string]string {
@@ -243,6 +249,9 @@ func mutateService(svc *corev1.Service, game *gameTemplate, server *gamesv1alpha
 	if svc.Annotations == nil {
 		svc.Annotations = map[string]string{}
 	}
+	for _, key := range strings.Split(svc.Annotations[managedServiceAnnotationsKey], ",") {
+		delete(svc.Annotations, key)
+	}
 	delete(svc.Annotations, mcRouterAnnotation)
 	delete(svc.Annotations, tailscaleHostnameKey)
 	delete(svc.Annotations, tailscaleTagsKey)
@@ -268,22 +277,92 @@ func mutateService(svc *corev1.Service, game *gameTemplate, server *gamesv1alpha
 	}
 	svc.Spec.Ports = ports
 
-	switch game.Spec.Connection.Type {
-	case gamesv1alpha1.ConnectionHostname:
-		svc.Annotations[mcRouterAnnotation] = address(game, server)
+	svc.Spec.Type = game.Spec.Service.Type
+	if svc.Spec.Type == "" {
 		svc.Spec.Type = corev1.ServiceTypeClusterIP
-	case gamesv1alpha1.ConnectionPortPool:
-		pool := game.Spec.Connection.PortPool
-		tags := pool.TailscaleTags
-		if tags == "" {
-			tags = "tag:k8s-games"
-		}
-		if server.Spec.Slot != nil {
-			svc.Annotations[tailscaleHostnameKey] = slotHostname(game, *server.Spec.Slot)
-		}
-		svc.Annotations[tailscaleTagsKey] = tags
-		svc.Spec.Type = corev1.ServiceTypeLoadBalancer
-		svc.Spec.LoadBalancerClass = ptr.To("tailscale")
-		svc.Spec.AllocateLoadBalancerNodePorts = ptr.To(false)
 	}
+	svc.Spec.LoadBalancerClass = game.Spec.Service.LoadBalancerClass
+	if game.Spec.Service.AllocateLoadBalancerNodePorts != nil || svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+		svc.Spec.AllocateLoadBalancerNodePorts = game.Spec.Service.AllocateLoadBalancerNodePorts
+	}
+	if svc.Spec.Type != corev1.ServiceTypeLoadBalancer {
+		svc.Spec.LoadBalancerClass = nil
+		svc.Spec.AllocateLoadBalancerNodePorts = nil
+	}
+	managedKeys := make([]string, 0, len(game.Spec.Service.Annotations))
+	for key, value := range game.Spec.Service.Annotations {
+		svc.Annotations[key] = value
+		managedKeys = append(managedKeys, key)
+	}
+	sort.Strings(managedKeys)
+	delete(svc.Annotations, managedServiceAnnotationsKey)
+	if len(managedKeys) > 0 {
+		svc.Annotations[managedServiceAnnotationsKey] = strings.Join(managedKeys, ",")
+	}
+	for key, value := range game.Spec.Service.Labels {
+		if _, managed := svc.Labels[key]; !managed {
+			svc.Labels[key] = value
+		}
+	}
+	if game.Spec.Integrations.MCRouter {
+		svc.Annotations[mcRouterAnnotation] = address(game, server)
+	}
+	if ts := game.Spec.Integrations.Tailscale; ts != nil {
+		hostname := ""
+		if server.Spec.Slot != nil {
+			hostname = slotHostname(game, *server.Spec.Slot)
+		} else {
+			sum := sha256.Sum256([]byte(server.Namespace + "/" + server.Name))
+			prefix := strings.TrimRight(server.Name[:min(len(server.Name), 50)], "-")
+			hostname = fmt.Sprintf("%s-%x", prefix, sum[:6])
+		}
+		svc.Annotations[tailscaleHostnameKey] = hostname
+		if ts.Tags != "" {
+			svc.Annotations[tailscaleTagsKey] = ts.Tags
+		}
+	}
+	for i := range svc.Spec.Ports {
+		if svc.Spec.Type == corev1.ServiceTypeClusterIP || (svc.Spec.AllocateLoadBalancerNodePorts != nil && !*svc.Spec.AllocateLoadBalancerNodePorts) {
+			svc.Spec.Ports[i].NodePort = 0
+		}
+	}
+}
+
+// serviceAddress uses assigned Kubernetes ports and ingress for direct Service
+// connections. PortPool addresses describe an externally managed forwarder.
+func serviceAddress(game *gameTemplate, server *gamesv1alpha1.GameServer, svc *corev1.Service) string {
+	if game.Spec.Connection.Type != gamesv1alpha1.ConnectionService {
+		return address(game, server)
+	}
+	if svc == nil || len(svc.Spec.Ports) == 0 {
+		return ""
+	}
+	host := ""
+	if direct := game.Spec.Connection.Service; direct != nil {
+		host = direct.Host
+	}
+	port := svc.Spec.Ports[0].Port
+	switch svc.Spec.Type {
+	case corev1.ServiceTypeNodePort:
+		if host == "" || svc.Spec.Ports[0].NodePort == 0 {
+			return ""
+		}
+		port = svc.Spec.Ports[0].NodePort
+	case corev1.ServiceTypeLoadBalancer:
+		if host == "" && len(svc.Status.LoadBalancer.Ingress) > 0 {
+			ingress := svc.Status.LoadBalancer.Ingress[0]
+			host = ingress.Hostname
+			if host == "" {
+				host = ingress.IP
+			}
+		}
+		if host == "" {
+			return ""
+		}
+	default:
+		if host == "" {
+			host = server.Name + "." + server.Namespace + ".svc"
+		}
+	}
+	return net.JoinHostPort(host, strconv.Itoa(int(port)))
 }

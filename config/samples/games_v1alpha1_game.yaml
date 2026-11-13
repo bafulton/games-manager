@@ -23,6 +23,8 @@ spec:
     ports:
     - name: java
       containerPort: 25565
+    integrations:
+      mcRouter: true
     connection:
       type: Hostname
       hostname:

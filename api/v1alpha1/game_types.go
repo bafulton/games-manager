@@ -7,18 +7,20 @@ import (
 )
 
 // ConnectionType is how players reach a server of a Game.
-// +kubebuilder:validation:Enum=Hostname;PortPool
+// +kubebuilder:validation:Enum=Service;Hostname;PortPool
 type ConnectionType string
 
 const (
+	// ConnectionService reports the actual Service endpoint, without a proxy.
+	ConnectionService ConnectionType = "Service"
 	// ConnectionHostname gives each server its own hostname under a shared
 	// domain, routed by a proxy that reads the hostname from the game's
 	// protocol (mc-router for Minecraft Java). All servers share one port.
 	ConnectionHostname ConnectionType = "Hostname"
 
 	// ConnectionPortPool gives each server a numbered slot. The slot picks
-	// the server's public port and the name of its Tailscale Service, which
-	// the edge forwarder has a fixed route to.
+	// the server's public port on an externally managed forwarder. It does
+	// not require a particular Service type or networking provider.
 	ConnectionPortPool ConnectionType = "PortPool"
 )
 
@@ -53,7 +55,8 @@ type HostnameConnection struct {
 // +kubebuilder:validation:XValidation:rule="self.basePort + self.slots * self.stride - 1 <= 65535",message="port pool exceeds port 65535"
 type PortPoolConnection struct {
 	// Slots is how many servers of this Game can exist at once. The edge
-	// forwarder must have a route for every slot.
+	// forwarder must have a route for every slot. This controller does not
+	// configure or operate that forwarder.
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=100
 	Slots int32 `json:"slots"`
@@ -76,12 +79,14 @@ type PortPoolConnection struct {
 	// +kubebuilder:default=1
 	// +optional
 	Stride int32 `json:"stride,omitempty"`
+}
 
-	// TailscaleTags for each slot's Tailscale Service. The edge forwarder's
-	// grant targets these.
-	// +kubebuilder:default="tag:k8s-games"
+// ServiceConnection optionally supplies a public DNS name or node IP. For
+// NodePort it is required to report a reachable address. LoadBalancer can
+// instead use its status ingress, and ClusterIP uses its in-cluster DNS name.
+type ServiceConnection struct {
 	// +optional
-	TailscaleTags string `json:"tailscaleTags,omitempty"`
+	Host string `json:"host,omitempty"`
 }
 
 // Connection is how players reach a server of a Game.
@@ -95,6 +100,45 @@ type Connection struct {
 
 	// +optional
 	PortPool *PortPoolConnection `json:"portPool,omitempty"`
+
+	// +optional
+	Service *ServiceConnection `json:"service,omitempty"`
+}
+
+// GameService configures ordinary Kubernetes Service exposure independently
+// of the advertised address or any optional integration.
+// +kubebuilder:validation:XValidation:rule="!has(self.loadBalancerClass) || self.type == 'LoadBalancer'",message="loadBalancerClass requires LoadBalancer"
+// +kubebuilder:validation:XValidation:rule="!has(self.allocateLoadBalancerNodePorts) || self.type == 'LoadBalancer'",message="allocateLoadBalancerNodePorts requires LoadBalancer"
+type GameService struct {
+	// +kubebuilder:validation:Enum=ClusterIP;NodePort;LoadBalancer
+	// +kubebuilder:default=ClusterIP
+	// +optional
+	Type corev1.ServiceType `json:"type,omitempty"`
+	// +optional
+	LoadBalancerClass *string `json:"loadBalancerClass,omitempty"`
+	// +optional
+	AllocateLoadBalancerNodePorts *bool `json:"allocateLoadBalancerNodePorts,omitempty"`
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// TailscaleIntegration configures the operator's hostname and optional tags.
+// Set service.type to LoadBalancer and service.loadBalancerClass to tailscale.
+type TailscaleIntegration struct {
+	// Tags is omitted by default, using the Tailscale operator's defaults.
+	// +optional
+	Tags string `json:"tags,omitempty"`
+}
+
+// GameIntegrations are explicit, optional external controllers/proxies.
+type GameIntegrations struct {
+	// MCRouter advertises a Hostname connection using mc-router's annotation.
+	// +optional
+	MCRouter bool `json:"mcRouter,omitempty"`
+	// +optional
+	Tailscale *TailscaleIntegration `json:"tailscale,omitempty"`
 }
 
 // SizePreset is a named set of resources a server can choose.
@@ -132,6 +176,8 @@ type GameStorage struct {
 
 // GameTemplateSpec is the immutable deployment recipe for a game version.
 // +kubebuilder:validation:XValidation:rule="self.sizes.exists(s, s.name == self.defaultSize)",message="defaultSize must name one of sizes"
+// +kubebuilder:validation:XValidation:rule="!has(self.integrations) || !has(self.integrations.mcRouter) || !self.integrations.mcRouter || self.connection.type == 'Hostname'",message="mcRouter requires a Hostname connection"
+// +kubebuilder:validation:XValidation:rule="!has(self.integrations) || !has(self.integrations.tailscale) || (has(self.service) && self.service.type == 'LoadBalancer' && has(self.service.loadBalancerClass) && self.service.loadBalancerClass == 'tailscale')",message="Tailscale requires a tailscale LoadBalancer Service"
 type GameTemplateSpec struct {
 	// Image of the game server, pinned to a tag or digest.
 	// +kubebuilder:validation:MinLength=1
@@ -156,6 +202,11 @@ type GameTemplateSpec struct {
 	Ports []GamePort `json:"ports"`
 
 	Connection Connection `json:"connection"`
+
+	// +optional
+	Service GameService `json:"service,omitempty"`
+	// +optional
+	Integrations GameIntegrations `json:"integrations,omitempty"`
 
 	// Sizes a server can choose from.
 	// +kubebuilder:validation:MinItems=1

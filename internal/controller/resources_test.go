@@ -37,9 +37,11 @@ func valheim() *gameTemplate {
 					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("6Gi")},
 				}},
 			},
-			DefaultSize: "small",
-			Storage:     gamesv1alpha1.GameStorage{Size: resource.MustParse("10Gi"), MountPath: "/config"},
-			Arch:        "amd64",
+			DefaultSize:  "small",
+			Service:      gamesv1alpha1.GameService{Type: corev1.ServiceTypeLoadBalancer, LoadBalancerClass: ptr.To("tailscale"), AllocateLoadBalancerNodePorts: ptr.To(false)},
+			Integrations: gamesv1alpha1.GameIntegrations{Tailscale: &gamesv1alpha1.TailscaleIntegration{Tags: "tag:k8s-games"}},
+			Storage:      gamesv1alpha1.GameStorage{Size: resource.MustParse("10Gi"), MountPath: "/config"},
+			Arch:         "amd64",
 		},
 	}
 }
@@ -53,6 +55,8 @@ func minecraft() *gameTemplate {
 		Hostname: &gamesv1alpha1.HostnameConnection{Domain: "mc.example.com"},
 	}
 	g.Spec.Arch = ""
+	g.Spec.Service = gamesv1alpha1.GameService{}
+	g.Spec.Integrations = gamesv1alpha1.GameIntegrations{MCRouter: true}
 	return g
 }
 
@@ -204,6 +208,7 @@ func TestServiceByConnection(t *testing.T) {
 
 func TestServicePortTracksContainerPortChanges(t *testing.T) {
 	g := minecraft()
+	g.Spec.Service.Type = corev1.ServiceTypeNodePort
 	svc := &corev1.Service{Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{
 		Name: "java", Port: 25565, TargetPort: intstr.FromInt32(25565), NodePort: 31000,
 	}}}}
@@ -212,5 +217,53 @@ func TestServicePortTracksContainerPortChanges(t *testing.T) {
 	p := svc.Spec.Ports[0]
 	if p.Port != 25566 || p.TargetPort != intstr.FromString("java") || p.NodePort != 31000 {
 		t.Fatalf("updated port = %+v; expected the new port, named target and retained NodePort", p)
+	}
+}
+
+func TestGenericServicesDoNotRequireIntegrations(t *testing.T) {
+	for _, kind := range []corev1.ServiceType{corev1.ServiceTypeClusterIP, corev1.ServiceTypeNodePort, corev1.ServiceTypeLoadBalancer} {
+		t.Run(string(kind), func(t *testing.T) {
+			g := minecraft()
+			g.Spec.Integrations = gamesv1alpha1.GameIntegrations{}
+			g.Spec.Service = gamesv1alpha1.GameService{Type: kind, Annotations: map[string]string{"example.com/exposure": "public"}}
+			svc := &corev1.Service{}
+			mutateService(svc, g, server("alice", "minecraft"))
+			if svc.Spec.Type != kind || svc.Spec.LoadBalancerClass != nil || svc.Annotations[mcRouterAnnotation] != "" || svc.Annotations[tailscaleHostnameKey] != "" {
+				t.Fatalf("unexpected integration or Service type: %+v", svc)
+			}
+			if svc.Annotations["example.com/exposure"] != "public" {
+				t.Fatal("custom annotations missing")
+			}
+			g.Spec.Service.Annotations = nil
+			svc.Annotations["external.example.com/keep"] = "yes"
+			mutateService(svc, g, server("alice", "minecraft"))
+			if svc.Annotations["example.com/exposure"] != "" || svc.Annotations["external.example.com/keep"] != "yes" {
+				t.Fatal("annotation ownership not respected")
+			}
+		})
+	}
+}
+
+func TestDirectServiceAddresses(t *testing.T) {
+	g := minecraft()
+	g.Spec.Connection = gamesv1alpha1.Connection{Type: gamesv1alpha1.ConnectionService}
+	s := server("alice", "minecraft")
+	svc := &corev1.Service{Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeClusterIP, Ports: []corev1.ServicePort{{Port: 25565}}}}
+	if got := serviceAddress(g, s, svc); got != "alice.games.svc:25565" {
+		t.Fatalf("ClusterIP address: %s", got)
+	}
+	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+	if got := serviceAddress(g, s, svc); got != "" {
+		t.Fatalf("pending ingress should have no address: %s", got)
+	}
+	svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "2001:db8::1"}}
+	if got := serviceAddress(g, s, svc); got != "[2001:db8::1]:25565" {
+		t.Fatalf("IPv6 ingress: %s", got)
+	}
+	svc.Spec.Type = corev1.ServiceTypeNodePort
+	svc.Spec.Ports[0].NodePort = 31000
+	g.Spec.Connection.Service = &gamesv1alpha1.ServiceConnection{Host: "node.example.com"}
+	if got := serviceAddress(g, s, svc); got != "node.example.com:31000" {
+		t.Fatalf("NodePort address: %s", got)
 	}
 }

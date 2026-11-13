@@ -80,7 +80,7 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 				}
 			}
 		}
-		return ctrl.Result{}, r.updateStatus(ctx, nil, server, sts)
+		return ctrl.Result{}, r.updateStatus(ctx, nil, server, sts, nil)
 	}
 
 	catalog := &gamesv1alpha1.Game{}
@@ -147,7 +147,7 @@ func (r *GameServerReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{}, r.updateStatus(ctx, game, server, sts)
+	return ctrl.Result{}, r.updateStatus(ctx, game, server, sts, svc)
 }
 
 // validateSlot checks explicit/restored reservations too. A conflicting slot
@@ -223,7 +223,7 @@ func (r *GameServerReconciler) finalize(ctx context.Context, server *gamesv1alph
 	return r.Update(ctx, server)
 }
 
-func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gameTemplate, server *gamesv1alpha1.GameServer, sts *appsv1.StatefulSet) error {
+func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gameTemplate, server *gamesv1alpha1.GameServer, sts *appsv1.StatefulSet, svc *corev1.Service) error {
 	ready := sts.Status.ReadyReplicas >= 1 && sts.Status.ObservedGeneration >= sts.Generation &&
 		sts.Status.CurrentRevision == sts.Status.UpdateRevision
 	phase := gamesv1alpha1.PhaseStarting
@@ -242,7 +242,7 @@ func (r *GameServerReconciler) updateStatus(ctx context.Context, game *gameTempl
 
 	server.Status.Phase = phase
 	if game != nil {
-		server.Status.Address = address(game, server)
+		server.Status.Address = serviceAddress(game, server, svc)
 	}
 	server.Status.ObservedGeneration = server.Generation
 	meta.SetStatusCondition(&server.Status.Conditions, metav1.Condition{

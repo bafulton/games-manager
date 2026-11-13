@@ -31,6 +31,13 @@ spec:
       - name: query
         containerPort: 2457
         protocol: UDP
+    service:
+      type: LoadBalancer
+      loadBalancerClass: tailscale
+      allocateLoadBalancerNodePorts: false
+    integrations:
+      tailscale:
+        tags: tag:k8s-games
     connection:
       type: PortPool
       portPool:

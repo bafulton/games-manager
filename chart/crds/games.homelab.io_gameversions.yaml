@@ -110,7 +110,8 @@ spec:
                           slots:
                             description: |-
                               Slots is how many servers of this Game can exist at once. The edge
-                              forwarder must have a route for every slot.
+                              forwarder must have a route for every slot. This controller does not
+                              configure or operate that forwarder.
                             format: int32
                             maximum: 100
                             minimum: 1
@@ -124,12 +125,6 @@ spec:
                             maximum: 65535
                             minimum: 1
                             type: integer
-                          tailscaleTags:
-                            default: tag:k8s-games
-                            description: |-
-                              TailscaleTags for each slot's Tailscale Service. The edge forwarder's
-                              grant targets these.
-                            type: string
                         required:
                         - basePort
                         - publicHost
@@ -138,10 +133,20 @@ spec:
                         x-kubernetes-validations:
                         - message: port pool exceeds port 65535
                           rule: self.basePort + self.slots * self.stride - 1 <= 65535
+                      service:
+                        description: |-
+                          ServiceConnection optionally supplies a public DNS name or node IP. For
+                          NodePort it is required to report a reachable address. LoadBalancer can
+                          instead use its status ingress, and ClusterIP uses its in-cluster DNS name.
+                        properties:
+                          host:
+                            type: string
+                        type: object
                       type:
                         description: ConnectionType is how players reach a server
                           of a Game.
                         enum:
+                        - Service
                         - Hostname
                         - PortPool
                         type: string
@@ -284,6 +289,25 @@ spec:
                     description: Image of the game server, pinned to a tag or digest.
                     minLength: 1
                     type: string
+                  integrations:
+                    description: GameIntegrations are explicit, optional external
+                      controllers/proxies.
+                    properties:
+                      mcRouter:
+                        description: MCRouter advertises a Hostname connection using
+                          mc-router's annotation.
+                        type: boolean
+                      tailscale:
+                        description: |-
+                          TailscaleIntegration configures the operator's hostname and optional tags.
+                          Set service.type to LoadBalancer and service.loadBalancerClass to tailscale.
+                        properties:
+                          tags:
+                            description: Tags is omitted by default, using the Tailscale
+                              operator's defaults.
+                            type: string
+                        type: object
+                    type: object
                   lifecycle:
                     description: |-
                       Lifecycle for the game container. Put the save-and-stop command in
@@ -1131,6 +1155,39 @@ spec:
                             type: string
                         type: object
                     type: object
+                  service:
+                    description: |-
+                      GameService configures ordinary Kubernetes Service exposure independently
+                      of the advertised address or any optional integration.
+                    properties:
+                      allocateLoadBalancerNodePorts:
+                        type: boolean
+                      annotations:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      labels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      loadBalancerClass:
+                        type: string
+                      type:
+                        default: ClusterIP
+                        description: Service Type string describes ingress methods
+                          for a service
+                        enum:
+                        - ClusterIP
+                        - NodePort
+                        - LoadBalancer
+                        type: string
+                    type: object
+                    x-kubernetes-validations:
+                    - message: loadBalancerClass requires LoadBalancer
+                      rule: '!has(self.loadBalancerClass) || self.type == ''LoadBalancer'''
+                    - message: allocateLoadBalancerNodePorts requires LoadBalancer
+                      rule: '!has(self.allocateLoadBalancerNodePorts) || self.type
+                        == ''LoadBalancer'''
                   sizes:
                     description: Sizes a server can choose from.
                     items:
@@ -1265,6 +1322,14 @@ spec:
                 x-kubernetes-validations:
                 - message: defaultSize must name one of sizes
                   rule: self.sizes.exists(s, s.name == self.defaultSize)
+                - message: mcRouter requires a Hostname connection
+                  rule: '!has(self.integrations) || !has(self.integrations.mcRouter)
+                    || !self.integrations.mcRouter || self.connection.type == ''Hostname'''
+                - message: Tailscale requires a tailscale LoadBalancer Service
+                  rule: '!has(self.integrations) || !has(self.integrations.tailscale)
+                    || (has(self.service) && self.service.type == ''LoadBalancer''
+                    && has(self.service.loadBalancerClass) && self.service.loadBalancerClass
+                    == ''tailscale'')'
             required:
             - game
             - template

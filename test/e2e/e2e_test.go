@@ -44,6 +44,8 @@ spec:
     ports:
       - name: game
         containerPort: 7777
+    integrations:
+      mcRouter: true
     connection:
       type: Hostname
       hostname:
@@ -73,7 +75,11 @@ func applyManifest(manifest string) {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 }
 
-func createServer(name string) {
+func createServer(name string, versions ...string) {
+	version := "sleeper-v1"
+	if len(versions) > 0 {
+		version = versions[0]
+	}
 	applyManifest(fmt.Sprintf(`
 apiVersion: games.homelab.io/v1alpha1
 kind: GameServer
@@ -82,9 +88,9 @@ metadata:
   namespace: %s
 spec:
   game: sleeper
-  gameVersion: sleeper-v1
+  gameVersion: %s
   owner: e2e
-`, name, gamesNamespace))
+`, name, gamesNamespace, version))
 }
 
 func get(args ...string) (string, error) {
@@ -177,6 +183,24 @@ var _ = Describe("games-manager", Ordered, func() {
 
 		setRunning("alice", true)
 		expectPhase("alice", "Running", time.Minute)
+	})
+
+	It("runs through an ordinary Service without optional integrations", func() {
+		direct := strings.Replace(sleeperGame, "name: sleeper-v1", "name: sleeper-direct", 1)
+		direct = strings.Replace(direct, "    integrations:\n      mcRouter: true\n", "", 1)
+		direct = strings.Replace(direct,
+			"    connection:\n      type: Hostname\n      hostname:\n        domain: e2e.example.com",
+			"    connection:\n      type: Service", 1)
+		applyManifest(direct)
+		createServer("direct", "sleeper-direct")
+		expectPhase("direct", "Running", time.Minute)
+		address, err := get("gameserver", "direct", "-o", "jsonpath={.status.address}")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(address).To(Equal("direct.games-e2e.svc:7777"))
+		annotation, err := get("service", "direct", "-o",
+			`jsonpath={.metadata.annotations.mc-router\.itzg\.me/externalServerName}`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(annotation).To(BeEmpty())
 	})
 
 	It("keeps the world when a server is deleted, and reuses it", func() {
