@@ -39,6 +39,9 @@ spec:
     type: Hostname
     hostname:
       domain: e2e.example.com
+  service:
+    annotations:
+      proxy.example.com/hostname: $(ADDRESS)
   sizes:
     - name: small
       resources:
@@ -161,8 +164,8 @@ var _ = Describe("games-manager", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(address).To(Equal("alice.e2e.example.com"))
 
-		const routerAnnotation = `jsonpath={.metadata.annotations.mc-router\.itzg\.me/externalServerName}`
-		annotation, err := get("service", "alice", "-o", routerAnnotation)
+		const hostnameAnnotation = `jsonpath={.metadata.annotations.proxy\.example\.com/hostname}`
+		annotation, err := get("service", "alice", "-o", hostnameAnnotation)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(annotation).To(Equal("alice.e2e.example.com"))
 	})

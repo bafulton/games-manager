@@ -1,7 +1,8 @@
-# Valheim, one slot per server. Slot n's public ports are
-# 2456 + 2n (game) and 2457 + 2n (query), forwarded by the edge to
-# valheim-slot-<n>, the server's Tailscale Service, on the game's own
-# 2456-2457. Players join valheim.example.com:<game port>.
+# Valheim, one slot per server. Slot n's public ports are 2456 + 2n (game)
+# and 2457 + 2n (query) on valheim.example.com. Something outside
+# games-manager forwards each slot's ports to the server's Service, on the
+# game's own 2456-2457; here, each Service is a LoadBalancer named for its
+# slot, so the forwarder's routes never change.
 apiVersion: games.homelab.io/v1alpha1
 kind: Game
 metadata:
@@ -29,6 +30,10 @@ spec:
       publicHost: valheim.example.com
       basePort: 2456
       stride: 2
+  service:
+    type: LoadBalancer
+    annotations:
+      lb.example.com/hostname: $(GAME)-slot-$(SLOT)
   sizes:
     - name: standard
       resources:

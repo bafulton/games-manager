@@ -998,9 +998,8 @@ spec:
                     description: PortPoolConnection configures ConnectionPortPool.
                     properties:
                       basePort:
-                        description: |-
-                          BasePort is slot 0's public port. Slot n's is BasePort + n*Stride.
-                          The edge forwards each slot's public ports to the game's own ports.
+                        description: BasePort is slot 0's public port. Slot n's is
+                          BasePort + n*Stride.
                         format: int32
                         maximum: 65535
                         minimum: 1
@@ -1013,8 +1012,8 @@ spec:
                         type: string
                       slots:
                         description: |-
-                          Slots is how many servers of this Game can exist at once. The edge
-                          forwarder must have a route for every slot.
+                          Slots is how many servers of this Game can exist at once. Whatever
+                          forwards the public ports needs a route for every slot.
                         format: int32
                         maximum: 100
                         minimum: 1
@@ -1028,12 +1027,6 @@ spec:
                         maximum: 65535
                         minimum: 1
                         type: integer
-                      tailscaleTags:
-                        default: tag:k8s-games
-                        description: |-
-                          TailscaleTags for each slot's Tailscale Service. The edge forwarder's
-                          grant targets these.
-                        type: string
                     required:
                     - basePort
                     - publicHost
@@ -2040,6 +2033,48 @@ spec:
                         type: string
                     type: object
                 type: object
+              service:
+                description: Service for each server. Defaults to a plain ClusterIP
+                  Service.
+                properties:
+                  allocateLoadBalancerNodePorts:
+                    description: |-
+                      AllocateLoadBalancerNodePorts, false for load balancers that don't
+                      need node ports.
+                    type: boolean
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations for each Service.
+                    maxProperties: 50
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels for each Service. games-manager's own labels
+                      take precedence.
+                    maxProperties: 50
+                    type: object
+                  loadBalancerClass:
+                    description: |-
+                      LoadBalancerClass picks the load balancer implementation. Kubernetes
+                      doesn't allow changing it on an existing Service.
+                    type: string
+                  type:
+                    default: ClusterIP
+                    description: Type of the Service.
+                    enum:
+                    - ClusterIP
+                    - NodePort
+                    - LoadBalancer
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: loadBalancerClass needs type LoadBalancer
+                  rule: '!has(self.loadBalancerClass) || self.type == ''LoadBalancer'''
+                - message: allocateLoadBalancerNodePorts needs type LoadBalancer
+                  rule: '!has(self.allocateLoadBalancerNodePorts) || self.type ==
+                    ''LoadBalancer'''
               sizes:
                 description: Sizes a server can choose from.
                 items:

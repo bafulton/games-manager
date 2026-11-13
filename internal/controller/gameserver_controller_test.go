@@ -80,7 +80,7 @@ var _ = Describe("GameServer Controller", func() {
 
 		svc := &corev1.Service{}
 		get(svc, "alice")
-		Expect(svc.Annotations).To(HaveKeyWithValue(mcRouterAnnotation, "alice.mc.example.com"))
+		Expect(svc.Annotations).To(HaveKeyWithValue(hostnameAnnotation, "alice.mc.example.com"))
 
 		get(s, "alice")
 		Expect(s.Finalizers).To(ContainElement(finalizer))
@@ -220,7 +220,7 @@ var _ = Describe("GameServer Controller", func() {
 
 		svc := &corev1.Service{}
 		get(svc, "carol")
-		Expect(svc.Annotations).To(HaveKeyWithValue(tailscaleHostnameKey, "valheim-slot-1"))
+		Expect(svc.Annotations).To(HaveKeyWithValue(slotAnnotation, "valheim-slot-1"))
 
 		By("refusing to move an assigned slot")
 		carol.Spec.Slot = ptr.To[int32](3)

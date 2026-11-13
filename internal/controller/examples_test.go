@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	gamesv1alpha1 "github.com/bafulton/games-manager/api/v1alpha1"
@@ -23,6 +24,14 @@ var _ = Describe("Game validation", func() {
 		game.Spec.NodeSelector = map[string]string{"kubernetes.io/arch": "arm64"}
 		err := k8sClient.Create(context.Background(), game, client.DryRunAll)
 		Expect(err).To(MatchError(ContainSubstring("set the architecture with arch")))
+	})
+
+	It("rejects a load balancer class on a Service that isn't a LoadBalancer", func() {
+		game := minecraft()
+		game.Name = "class-without-lb"
+		game.Spec.Service.LoadBalancerClass = ptr.To("lb.example.com/class")
+		err := k8sClient.Create(context.Background(), game, client.DryRunAll)
+		Expect(err).To(MatchError(ContainSubstring("loadBalancerClass needs type LoadBalancer")))
 	})
 
 	DescribeTable("checks defaultVersion against versions", func(versions []gamesv1alpha1.GameVersion, defaultVersion string, valid bool) {

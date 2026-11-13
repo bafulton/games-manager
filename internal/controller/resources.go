@@ -3,6 +3,9 @@ package controller
 import (
 	"fmt"
 	"maps"
+	"slices"
+	"strconv"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -21,11 +24,13 @@ const (
 	// spec.restartedAt rolls the pod.
 	restartedAtAnnotation = "games.homelab.io/restartedAt"
 
-	mcRouterAnnotation   = "mc-router.itzg.me/externalServerName"
-	tailscaleHostnameKey = "tailscale.com/hostname"
-	tailscaleTagsKey     = "tailscale.com/tags"
-	gameContainerName    = "game"
-	worldVolumeName      = "world"
+	// managedAnnotationsKey lists the Service annotations that came from
+	// the Game, so the controller removes one the Game stops setting while
+	// leaving annotations other controllers add alone.
+	managedAnnotationsKey = "games.homelab.io/managed-annotations"
+
+	gameContainerName = "game"
+	worldVolumeName   = "world"
 )
 
 func labels(game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) map[string]string {
@@ -46,12 +51,6 @@ func selectorLabels(server *gamesv1alpha1.GameServer) map[string]string {
 // GameServer from a backup finds its world again.
 func pvcName(server *gamesv1alpha1.GameServer) string {
 	return server.Name + "-world"
-}
-
-// slotHostname is the tailnet name of a PortPool slot's Service. The edge
-// forwarder routes each slot's public ports to it.
-func slotHostname(game *gamesv1alpha1.Game, slot int32) string {
-	return fmt.Sprintf("%s-slot-%d", game.Name, slot)
 }
 
 // sizeFor returns the server's size preset, falling back to the Game's
@@ -281,17 +280,46 @@ func protocol(p gamesv1alpha1.GamePort) corev1.Protocol {
 	return p.Protocol
 }
 
-// mutateService sets the fields of svc the controller owns. Hostname games
-// get a ClusterIP that mc-router discovers by annotation; PortPool games get
-// a Tailscale LoadBalancer named for their slot, which the edge forwards to.
+// expand replaces the $(VARIABLES) a Game's service annotations and labels
+// can use with the server's values.
+func expand(value string, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) string {
+	slot := ""
+	if server.Spec.Slot != nil {
+		slot = strconv.Itoa(int(*server.Spec.Slot))
+	}
+	return strings.NewReplacer(
+		"$(SERVER)", server.Name,
+		"$(NAMESPACE)", server.Namespace,
+		"$(GAME)", game.Name,
+		"$(SLOT)", slot,
+		"$(ADDRESS)", address(game, server),
+	).Replace(value)
+}
+
+// mutateService sets the fields of svc the controller owns, from the Game's
+// service settings.
 func mutateService(svc *corev1.Service, game *gamesv1alpha1.Game, server *gamesv1alpha1.GameServer) {
-	svc.Labels = labels(game, server)
+	spec := game.Spec.Service
+
+	svc.Labels = map[string]string{}
+	for k, v := range spec.Labels {
+		svc.Labels[k] = expand(v, game, server)
+	}
+	maps.Copy(svc.Labels, labels(game, server))
+
 	if svc.Annotations == nil {
 		svc.Annotations = map[string]string{}
 	}
-	delete(svc.Annotations, mcRouterAnnotation)
-	delete(svc.Annotations, tailscaleHostnameKey)
-	delete(svc.Annotations, tailscaleTagsKey)
+	for _, k := range strings.Split(svc.Annotations[managedAnnotationsKey], ",") {
+		delete(svc.Annotations, k)
+	}
+	delete(svc.Annotations, managedAnnotationsKey)
+	if len(spec.Annotations) > 0 {
+		for k, v := range spec.Annotations {
+			svc.Annotations[k] = expand(v, game, server)
+		}
+		svc.Annotations[managedAnnotationsKey] = strings.Join(slices.Sorted(maps.Keys(spec.Annotations)), ",")
+	}
 
 	svc.Spec.Selector = selectorLabels(server)
 
@@ -314,22 +342,21 @@ func mutateService(svc *corev1.Service, game *gamesv1alpha1.Game, server *gamesv
 	}
 	svc.Spec.Ports = ports
 
-	switch game.Spec.Connection.Type {
-	case gamesv1alpha1.ConnectionHostname:
-		svc.Annotations[mcRouterAnnotation] = address(game, server)
+	svc.Spec.Type = spec.Type
+	if svc.Spec.Type == "" {
 		svc.Spec.Type = corev1.ServiceTypeClusterIP
-	case gamesv1alpha1.ConnectionPortPool:
-		pool := game.Spec.Connection.PortPool
-		tags := pool.TailscaleTags
-		if tags == "" {
-			tags = "tag:k8s-games"
+	}
+	svc.Spec.LoadBalancerClass = spec.LoadBalancerClass
+	svc.Spec.AllocateLoadBalancerNodePorts = spec.AllocateLoadBalancerNodePorts
+	if svc.Spec.Type == corev1.ServiceTypeLoadBalancer && spec.AllocateLoadBalancerNodePorts == nil {
+		// The API server defaults it to true; keep that, or every update
+		// would look like a change.
+		svc.Spec.AllocateLoadBalancerNodePorts = ptr.To(true)
+	}
+	if svc.Spec.Type == corev1.ServiceTypeClusterIP {
+		// Node ports don't exist on a ClusterIP Service.
+		for i := range svc.Spec.Ports {
+			svc.Spec.Ports[i].NodePort = 0
 		}
-		if server.Spec.Slot != nil {
-			svc.Annotations[tailscaleHostnameKey] = slotHostname(game, *server.Spec.Slot)
-		}
-		svc.Annotations[tailscaleTagsKey] = tags
-		svc.Spec.Type = corev1.ServiceTypeLoadBalancer
-		svc.Spec.LoadBalancerClass = ptr.To("tailscale")
-		svc.Spec.AllocateLoadBalancerNodePorts = ptr.To(false)
 	}
 }
